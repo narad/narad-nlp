@@ -1,12 +1,11 @@
 package narad.util
-
 import edu.stanford.nlp.ling.HasWord;
 import edu.stanford.nlp.ling.Sentence;
 import edu.stanford.nlp.ling.TaggedWord;
 import edu.stanford.nlp.tagger.maxent.MaxentTagger;
 import edu.stanford.nlp.tagger.maxent.TaggerConfig;
 import edu.stanford.nlp.util.XMLUtils;
-import narad.nlp.parse.{Tree, TreeReader}
+import narad.nlp.trees.{Tree, TreeReader}
 
 class StanfordTaggerWrapper(filename: String) {
 	val tagger = new MaxentTagger(filename)

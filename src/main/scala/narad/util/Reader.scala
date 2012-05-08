@@ -8,9 +8,16 @@ object ChunkReader {
 	/** An iterator for reading blank-line delimited files.
 	* 
 	* Can be used with most treebanks, CoNLL-formatted files to
-	* process each chunk in a memory-efficient manner.  */
-	def read(filename: String, iformat: String="UTF-8"): Iterator[String] = {
-		val lines = scala.io.Source.fromFile(filename, iformat).getLines.toArray
+	* process each chunk in a memory-efficient manner.  Though 
+	* not totally efficient at the moment...*/
+	def read(filename: String, iencoding: String="UTF-8"): Iterator[String] = {
+		var lines = Array[String]()
+		try {
+			lines = scala.io.Source.fromFile(filename, iencoding).getLines.toArray			
+		}
+		catch {
+			case e: Exception => System.err.println("Error reading file <%s> in ChunkReader.read (encoding:%s)".format(filename, iencoding))
+		}
 		Iterator.continually(readNext(lines)).takeWhile(_ != null)
 	}
 
