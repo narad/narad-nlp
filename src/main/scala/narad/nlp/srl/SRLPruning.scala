@@ -1,14 +1,14 @@
+/*
 package narad.nlp.srl
 import java.io._
 import scala.collection.mutable.{HashMap, HashSet}
-import narad.util.ChunkReader
+import narad.io.reader.{ChunkReader, SRLReader}
 
 object SRLPruning {
 
 	def main(cargs: Array[String]) = {
 		val options = new narad.util.ArgParser(cargs)
 		val argFile   = options.getString("--arg.file", "srl.args")
-		val predFile  = options.getString("--pred.file", "srl.preds")
 		val senseFile = options.getString("--sense.file", "srl.senses")
 		val suffixFile = options.getString("--suffix.file", "srl.suffixes")
 		val distFile  = options.getString("--dist.file", "srl.dist")
@@ -24,18 +24,13 @@ object SRLPruning {
 		val suffixes = new HashMap[String, Int]
 		val senses = new HashMap[String, HashSet[String]]
 		val dists  = new Array[Int](1000)
-		System.out.println("about to read")
+		val numPreds = 0
+
 		for (datum <- SRLReader.read(options)) {
-//			args ++= datum.labels
-		println("datum found")
-			println(datum)
 			for (label <- datum.labels) {
 				if (args.contains(label)) args(label) += 1 else args(label) = 1
 			}
 			for (i <- 1 to datum.slen if datum.hasPred(i)) {
-				println(i)
-				println(i + ":" + datum.postags(i))
-				preds += datum.postags(i)
 				val pred = datum.lemma(i)
 				val sense = datum.sense(i)
 				val suffix = sense.substring(sense.lastIndexOf(".")+1)
@@ -58,26 +53,16 @@ object SRLPruning {
 				}
 			}
 		}
+		
+		System.err.println("About to print preds")
+		for (i <- 0 until 20) {
+			System.err.println("# of preds with %d".format(senses.filter(_._2.size == i).size))
+		}
+		
 		if (argFile != null) {
 			var out = new PrintWriter(new File(argFile), oformat);
 			val labs = args.toArray.sortBy(_._2 * -1).filter(_._2 >= lthreshold)
 			out.write(labs.map(_._1).mkString("\n"))
-			out.close
-/*
-			var pruned = false
-			for (l <- args) {
-				if (l._2 >= lthreshold) {
-					out.write(l._1 + "\n")
-				}
-				else {
-					pruned = true
-				}
-			}	
-*/ //			if (pruned) out.write("A-DUMMY\n")
-		}
-		if (predFile != null) {
-			var out = new PrintWriter(new File(predFile), oformat);
-			for (l <- preds) out.write(l + "\n")
 			out.close
 		}
 		if (senseFile != null) {
@@ -108,13 +93,6 @@ object SRLPruning {
 					set = true
 				}
 			}
-			
-//			val dmax = dists.zipWithIndex.filter(_._1 > 0).map(_._2).max
-
-//			var dmax = 0
-//			for (i <- 1 until dists.size) {
-//				if (dists(i) < dthreshold && dmax == 0) dmax = i
-//			}
 			out.write("%d\n".format(dmax))
 			out.close
 		}
@@ -171,4 +149,7 @@ else {
 return ltypes.filter(l => ltokens.filter(_ == l).size > threshold)		
 }
 }
+*/
+
+
 */

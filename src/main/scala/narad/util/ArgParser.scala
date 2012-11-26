@@ -3,6 +3,8 @@ package narad.util
 	class ArgParser(argArray: Array[String]) {
 		var args = argArray
 		
+		def contains(str: String): Boolean = args.contains(str)
+		
 		def getInt(arg: String): Int = getString(arg).toInt
 
 		def getInt(arg: String, default: Int): Int = getString(arg, default.toString).toInt
@@ -22,7 +24,7 @@ package narad.util
 			}
 		}	
 		
-		def getBoolean(arg: String, default: Boolean): Boolean = {
+		def getBoolean(arg: String, default: Boolean=false): Boolean = {
 			if (args.contains(arg)) {
 				return args(args.indexOf(arg)+1).toLowerCase == "true"
 			}

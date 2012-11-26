@@ -28,7 +28,7 @@ class SRLDatum(grid: Array[Array[String]]) {
 	def constructArgs(grid: Array[Array[String]]): Array[Array[String]] = {
 		var args = Array.ofDim[String](slen+1, slen+1)
 		val poffset = 13 //if (format == "CoNLL09") 13 else 10
-		for (i <- 0 until grid.size) {			
+		for (i <- 0 until grid.size) {		
 			for (k <- poffset+1 until grid(i).size) {
 				val label = grid(i)(k)
 				val head  = preds(k-(poffset+1))
@@ -40,16 +40,16 @@ class SRLDatum(grid: Array[Array[String]]) {
 	
 	def getLabel(pidx: Int, aidx: Int) = args(pidx)(aidx)
 
-	def hasArg(pidx: Int, aidx: Int) = args(pidx)(aidx) != "_" 
+	def hasArg(pidx: Int, aidx: Int) = hasPredicate(pidx) && args(pidx)(aidx) != "_" 
 
 	def hasArgLabel(pidx: Int, aidx: Int, label: String) = args(pidx)(aidx) == label
 
 	def hasPred(pidx: Int) = preds.contains(pidx) 
 
-	def hasSense(pidx: Int, str: String) = grid(pidx-1)(14) == str
+	def hasPredicate(pidx: Int) = preds.contains(pidx)
 	
-//	def predicate(pidx: Int) = 
-
+	def hasSense(pidx: Int, str: String) = grid(pidx-1)(13) == str
+	
 	def predicates: Array[Int] = preds 
 	
 	def form(i: Int) = grid(i-1)(1)
@@ -111,7 +111,7 @@ class SRLDatum(grid: Array[Array[String]]) {
 	def slen = grid.size
 	
 	def tokens: Array[SRLToken] = {
-		(0 until slen).toArray.map{i => new SRLToken(form(i), lemma(i), postag(i), ppostag(i), feat(i))}
+		(1 to slen).toArray.map{i => new SRLToken(form(i), lemma(i), postag(i), ppostag(i), feat(i))}
 	}
 	
 	override def toString = grid.map(_.mkString("\t")).mkString("\n")

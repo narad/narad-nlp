@@ -1,10 +1,12 @@
 package narad.nlp.parser.metrics
 import java.text.DecimalFormat
-import narad.nlp.trees.{Tree, TreebankReader}
-import narad.util.{ArgParser, HashCounter, ZippedReader}
+import narad.nlp.trees.Tree
+import narad.io.reader.{TreebankReader, ZippedReader}
+import narad.util.{ArgParser, HashCounter}
 import scala.collection.mutable.{HashMap, HashSet}
 
 object EvalContainer {
+	
 	def construct(goldTree: Tree, testTree: Tree, verbose: Boolean = false): EvalContainer = {
 		goldTree.annotateWithIndices(0)
 		testTree.annotateWithIndices(0)
@@ -80,7 +82,7 @@ object EvalContainer {
 }
 
 
-class EvalContainer extends HashCounter {
+class EvalContainer extends HashCounter[String] {
 
 	def combine(that: EvalContainer): EvalContainer = {
 		val e = new EvalContainer

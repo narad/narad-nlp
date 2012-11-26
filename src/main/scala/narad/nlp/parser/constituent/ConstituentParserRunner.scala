@@ -1,9 +1,10 @@
+/*
 package narad.nlp.parser.constituent
 import narad.bp.structure._
 import narad.bp.train._
 import narad.bp.util._
-import narad.nlp.trees.{Tree, TreeReader}
-import narad.projects.bpdp._
+import narad.nlp.trees.Tree
+import narad.io.reader.TreeReader
 import narad.util._
 import scala.collection.mutable.{ArrayBuffer, HashMap}
 
@@ -19,7 +20,7 @@ object ParserRunner {
 		val maxEx      = options.getInt("--max.examples", -1)
 		val iterations = options.getInt("--iterations", 10)
 		val rate       = options.getDouble("--rate", 0.3)
-		val initRate   = options.getDouble("--init.rate", 0.01)
+		val initRate   = options.getDouble("--init.rate", 1)
 		val prune = options.getBoolean("--prune", false)
 		val verbose = options.getBoolean("--verbose", false)
 		var btime = System.currentTimeMillis()
@@ -38,7 +39,7 @@ object ParserRunner {
 		var params = init(initFile, pvsize)
 		val nrExamples = if (maxEx == -1) countExamples(fidxFile) else maxEx
 		for (i <- 0 until iterations) {
-			val nparams = SGDTrainer.train(params, fidxFile, constructor, maxExamples = nrExamples, bpIters = 10, verbose = verbose)
+			val nparams = SGDTrainer.train(params, fidxFile, Parser.construct, maxExamples = nrExamples, bpIters = 10, verbose = verbose)
 			if (i+1 == iterations) {
 				writeToFile(nparams.tail, outFile + ".pv")
 			}
@@ -57,24 +58,25 @@ object ParserRunner {
 			val words     = ex.attributes("@words").split(" ")
 			val tags      = ex.attributes("@tags").split(" ")
 			val slen      = words.size
-			val model = SGDTrainer.test(params, constructor, ex, bpIters = 10, verbose = verbose).asInstanceOf[Parser]
+			val model = SGDTrainer.test(params, Parser.construct, ex, bpIters = 10, verbose = verbose).asInstanceOf[Parser]
 			val tree = model.decode(words, tags)
 			println(tree)
 			count += 1
 		}
 	}
 
-	def constructor(ex: PotentialExample, pots: Array[Potential]): Parser = {
+/*
+	def construct(ex: PotentialExample, pots: Array[Potential]): Parser = {
 		val words     = ex.attributes("@words").split(" ")
-		val nonterms  = ex.attributes.getOrElse("@grammar", "").split(" ").distinct
+//		val nonterms  = ex.attributes.getOrElse("@grammar", "").split(" ").distinct
 		val slen      = words.size
 		System.err.print("Constructing Parser (%d words, %d pots): ".format(slen, pots.size))
 		var startTime = System.currentTimeMillis()
-		val model = Parser.construct(pots, slen, nonterms)
+		val model = Parser.construct(pots, slen) //, nonterms)
 		System.err.println((System.currentTimeMillis() - startTime) / 1000.0 + "s.")		
 		model
 	}
-
+*/
 
 	def init(initFile: String, pvsize: Int = 0): Array[Double] = {
 		assert(initFile != "null" || pvsize > 0, "No init.file or pv.size specified.")
@@ -534,4 +536,5 @@ println(count + ".")
 return count
 }
 }	
+*/
 */

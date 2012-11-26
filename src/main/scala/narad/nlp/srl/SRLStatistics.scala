@@ -1,7 +1,9 @@
+/*
 package narad.nlp.srl
 import java.io._
 import scala.collection.mutable.{HashMap, HashSet}
-import narad.util.{ArgParser, ChunkReader}
+import narad.io.reader.{ChunkReader, SRLReader}
+import narad.util.ArgParser
 
 object SRLStatistics {
 
@@ -113,3 +115,5 @@ for (j <- 1 to slen) {
 //		println("%d predicates with %d labels:\n  %s".format(predCount, preds.size, preds.mkString(", ")))
 //		println("%d arg tags:\n %s".format(sargs.size, sargs.mkString(", ")))
 //		println("%d arg tag pairs:\n %s".format(args.size, rargs.map(t => "%s-%s".format(t._1, t._2)).mkString(", ")))
+
+*/

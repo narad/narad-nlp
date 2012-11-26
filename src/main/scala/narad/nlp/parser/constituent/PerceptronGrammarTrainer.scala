@@ -1,6 +1,8 @@
+/*
 package narad.nlp.parser.constituent
 import narad.nlp.trees._
 import narad.util.ArgParser
+import narad.io.reader.TreeReader
 import scala.collection.mutable.HashMap
 
 object PerceptronGrammarTrainer {
@@ -70,3 +72,4 @@ object PerceptronGrammarTrainer {
 		calculateUpdates(testTrees, trueTrees, oldParams, rate, backoff, verbose)
 	}
 }
+*/

@@ -1,6 +1,6 @@
 package narad.nlp.trees
 
-import narad.nlp.ner._
+//import narad.nlp.ner._
 import scala.collection.mutable.{ArrayBuffer, HashMap, HashSet}
 
 
@@ -16,6 +16,8 @@ case class Tree(annotation: Annotation, children: Array[Tree]) extends Iterator[
 	def isUnary: Boolean = isUnaryRewrite
 	def isRoot: Boolean = label == "TOP"
 	def toSpan: Span = Span(start, end, label, isUnary)
+	
+	def slen = tokens.size
 
   def getSpans: Iterator[Span] = {
 		return (for (t <- this if !t.isLeaf) yield Span(t.start, t.end, t.label, t.isUnary))
@@ -268,9 +270,9 @@ def nonterminals: Array[String] = {
 	buf.toArray
 }
 
-def clearLabels(l: String): Unit = {
+def setLabels(l: String): Unit = {
 	this.annotation += "label" -> l
-	children.foreach(_.clearLabels(l))
+	children.foreach(_.setLabels(l))
 }
 
 def extractRules: HashSet[String] = {

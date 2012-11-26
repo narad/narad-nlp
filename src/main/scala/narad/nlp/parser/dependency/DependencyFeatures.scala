@@ -1,4 +1,257 @@
 package narad.nlp.parse
+import scala.collection.mutable.ArrayBuffer
+import narad.io.datum.CoNLLDatum
+
+trait DependencyFeatures {
+	
+//	def extract(otokens: Array[RToken], ohead: Int, odep: Int): Array[String] = {
+
+	case class DependencyToken(word: String, lemma: String, pos: String, cpos: String)
+
+	def dependencyFeatures(datum: CoNLLDatum, ohead: Int, odep: Int): Array[String] = {
+//		System.err.println("Conll size = " + datum.slen + "vs ohead " + ohead + "; vs odep of " + odep)
+		val otokens = (1 to datum.slen).map(i => new DependencyToken(datum.word(i), datum.lemma(i), datum.postag(i), datum.cpostag(i)))
+		val feats = new ArrayBuffer[String]
+		
+		val stoken = new DependencyToken("LEFFT_W", "LEFT_LEMMA", "LEFT_POS", "LEFT_CPOS")
+		val etoken = new DependencyToken("RIGHT_W", "RIGHT_LEMMA", "RIGHT_POS", "RIGHT_CPOS")
+		val rtoken = new DependencyToken("ROOT_W", "ROOT_L", "ROOT_POS", "ROOT_CPOS")
+		val tokens = Array(stoken) ++ Array(rtoken) ++ otokens ++ Array(etoken)
+		val head = ohead + 1 //  -- should be using base 1 anyway, addition not needed
+		val dep  = odep  + 1
+
+		val dir  = if (dep > head) "R" else "L"
+		val dist = scala.math.abs(head - dep - 1)
+		val htoken = tokens(head)
+		val dtoken = tokens(dep)
+		
+		val small = if (dep < head) dep else head
+		val large = if (dep > head) dep else head 
+		
+		feats += "1,3:%s,%s;".format(htoken.word, htoken.pos)
+		feats += "1,3:%s,%s;&%s%d".format(htoken.word, htoken.pos, dir, dist)
+		feats += "1,3:%s,%s;%s,%s".format(htoken.word, htoken.pos, dtoken.word, dtoken.pos)
+		feats += "1,3:%s,%s;%s,%s;&%s%d".format(htoken.word, htoken.pos, dtoken.word, dtoken.pos, dir, dist)
+		feats += "1,3:%s,%s;%s".format(htoken.word, htoken.pos, dtoken.word)
+		feats += "1,3:%s,%s;%s;&%s%d".format(htoken.word, htoken.pos, dtoken.word, dir, dist)
+		feats += "1,3:%s,%s;%s".format(htoken.word, htoken.pos, dtoken.pos)
+		feats += "1,3:%s,%s;%s;&%s%d".format(htoken.word, htoken.pos, dtoken.pos, dir, dist)
+		// Then same with the opposing (coarse or fine) part of speech
+		feats += "1,4:%s,%s;".format(htoken.word, htoken.cpos)
+		feats += "1,4:%s,%s;&%s%d".format(htoken.word, htoken.cpos, dir, dist)
+		feats += "1,4:%s,%s;%s,%s".format(htoken.word, htoken.cpos, dtoken.word, dtoken.cpos)
+		feats += "1,4:%s,%s;%s,%s;&%s%d".format(htoken.word, htoken.cpos, dtoken.word, dtoken.cpos, dir, dist)
+		feats += "1,4:%s,%s;%s".format(htoken.word, htoken.cpos, dtoken.word)
+		feats += "1,4:%s,%s;%s;&%s%d".format(htoken.word, htoken.cpos, dtoken.word, dir, dist)
+		feats += "1,4:%s,%s;%s".format(htoken.word, htoken.cpos, dtoken.cpos)
+		feats += "1,4:%s,%s;%s;&%s%d".format(htoken.word, htoken.cpos, dtoken.cpos, dir, dist)
+		
+		// More..
+		feats += "1:%s;".format(htoken.word)
+		feats += "1:%s;&%s%d".format(htoken.word, dir, dist)
+		feats += "1:%s;1,3:%s,%s".format(htoken.word, dtoken.word, dtoken.pos)
+		feats += "1:%s;1,3:%s,%s;&%s%d".format(htoken.word, dtoken.word, dtoken.pos, dir, dist)
+		feats += "1:%s;1,4:%s,%s;&%s%d".format(htoken.word, dtoken.word, dtoken.cpos, dir, dist)
+		feats += "1:%s;1,4:%s,%s;&%s%d".format(htoken.word, dtoken.word, dtoken.cpos, dir, dist)
+		feats += "1:%s;1:%s".format(htoken.word, dtoken.word)
+		feats += "1:%s;1:%s&%s%d".format(htoken.word, dtoken.word, dir, dist)
+		feats += "1:%s;2:%s".format(htoken.word, dtoken.lemma)
+		feats += "1:%s;2:%s&%s%d".format(htoken.word, dtoken.lemma, dir, dist)
+		feats += "1:%s;3:%s".format(htoken.word, dtoken.pos)
+		feats += "1:%s;3:%s&%s%d".format(htoken.word, dtoken.pos, dir, dist)
+		feats += "1:%s;4:%s".format(htoken.word, dtoken.cpos)
+		feats += "1:%s;4:%s&%s%d".format(htoken.word, dtoken.cpos, dir, dist)
+		
+		
+		// WITH HEAD LEMMAS
+		feats += "2,3:%s,%s;".format(htoken.lemma, htoken.pos)
+		feats += "2,3:%s,%s;&%s%d".format(htoken.lemma, htoken.pos, dir, dist)
+		feats += "2,3:%s,%s;%s,%s".format(htoken.lemma, htoken.pos, dtoken.lemma, dtoken.pos)
+		feats += "2,3:%s,%s;%s,%s;&%s%d".format(htoken.lemma, htoken.pos, dtoken.lemma, dtoken.pos, dir, dist)
+		feats += "2,3:%s,%s;%s".format(htoken.lemma, htoken.pos, dtoken.lemma)
+		feats += "2,3:%s,%s;%s;&%s%d".format(htoken.lemma, htoken.pos, dtoken.lemma, dir, dist)
+		feats += "2,3:%s,%s;%s".format(htoken.lemma, htoken.pos, dtoken.pos)
+		feats += "2,3:%s,%s;%s;&%s%d".format(htoken.lemma, htoken.pos, dtoken.pos, dir, dist)
+		// Then same with the opposing (coarse or fine) part of speech
+		feats += "2,4:%s,%s;".format(htoken.lemma, htoken.cpos)
+		feats += "2,4:%s,%s;&%s%d".format(htoken.lemma, htoken.cpos, dir, dist)
+		feats += "2,4:%s,%s;%s,%s".format(htoken.lemma, htoken.cpos, dtoken.lemma, dtoken.cpos)
+		feats += "2,4:%s,%s;%s,%s;&%s%d".format(htoken.lemma, htoken.cpos, dtoken.lemma, dtoken.cpos, dir, dist)
+		feats += "2,4:%s,%s;%s".format(htoken.lemma, htoken.cpos, dtoken.lemma)
+		feats += "2,4:%s,%s;%s;&%s%d".format(htoken.lemma, htoken.cpos, dtoken.lemma, dir, dist)
+		feats += "2,4:%s,%s;%s".format(htoken.lemma, htoken.cpos, dtoken.cpos)
+		feats += "2,4:%s,%s;%s;&%s%d".format(htoken.lemma, htoken.cpos, dtoken.cpos, dir, dist)	
+		// Backoffs	
+
+		feats += "2:%s;".format(htoken.lemma)
+		feats += "2:%s;&%s%d".format(htoken.lemma, dir, dist)
+		feats += "2:%s;1:%s".format(htoken.lemma, dtoken.word, dir, dist)
+		feats += "2:%s;1:%s:&%s%d".format(htoken.lemma, dtoken.word, dir, dist)
+		feats += "2:%s;1,3:%s,%s".format(htoken.lemma, dtoken.lemma, dtoken.pos)
+		feats += "2:%s;1,3:%s,%s;&%s%d".format(htoken.lemma, dtoken.lemma, dtoken.pos, dir, dist)
+		feats += "2:%s;1,4:%s,%s;&%s%d".format(htoken.lemma, dtoken.lemma, dtoken.cpos, dir, dist)
+		feats += "2:%s;1,4:%s,%s;&%s%d".format(htoken.lemma, dtoken.lemma, dtoken.cpos, dir, dist)
+		feats += "2:%s;2:%s".format(htoken.lemma, dtoken.lemma)
+		feats += "2:%s;2:%s&%s%d".format(htoken.lemma, dtoken.lemma, dir, dist)
+		feats += "2:%s;3:%s".format(htoken.lemma, dtoken.pos)
+		feats += "2:%s;3:%s&%s%d".format(htoken.lemma, dtoken.pos, dir, dist)
+		feats += "2:%s;4:%s".format(htoken.lemma, dtoken.cpos)
+		feats += "2:%s;4:%s&%s%d".format(htoken.lemma, dtoken.cpos, dir, dist)
+		
+		feats += "3:%s".format(htoken.pos)
+		feats += "3:%s;&%s%d".format(htoken.pos, dir, dist)
+		feats += "3:%s;1,3:%s,%s".format(htoken.pos, dtoken.word, dtoken.pos, dir, dist)
+		feats += "3:%s;1,3:%s,%s&%s%d".format(htoken.pos, dtoken.word, dtoken.pos, dir, dist)
+		feats += "3:%s;1:%s".format(htoken.pos, dtoken.word)
+		feats += "3:%s;1:%s&%s%d".format(htoken.pos, dtoken.word, dir, dist)
+		feats += "3:%s;2,3:%s,%s".format(htoken.pos, dtoken.lemma, dtoken.pos)
+		feats += "3:%s;2,3:%s,%s&%s%d".format(htoken.pos, dtoken.lemma, dtoken.pos, dir, dist)
+		feats += "3:%s;2:%s".format(htoken.pos, dtoken.lemma)
+		feats += "3:%s;2:%s&%s%d".format(htoken.pos, dtoken.lemma, dir, dist)
+		feats += "3:%s;3:%s".format(htoken.pos, dtoken.pos)
+		feats += "3:%s;3:%s&%s%d".format(htoken.pos, dtoken.pos, dir, dist)
+
+		feats += "4:%s".format(htoken.cpos)
+		feats += "4:%s;&%s%d".format(htoken.cpos, dir, dist)
+		feats += "4:%s;1,4:%s,%s".format(htoken.cpos, dtoken.word, dtoken.pos, dir, dist)
+		feats += "4:%s;1,4:%s,%s&%s%d".format(htoken.cpos, dtoken.word, dtoken.pos, dir, dist)
+		feats += "4:%s;1:%s".format(htoken.cpos, dtoken.word)
+		feats += "4:%s;1:%s&%s%d".format(htoken.cpos, dtoken.word, dir, dist)
+		feats += "4:%s;2,4:%s,%s".format(htoken.cpos, dtoken.lemma, dtoken.pos)
+		feats += "4:%s;2,4:%s,%s&%s%d".format(htoken.cpos, dtoken.lemma, dtoken.pos, dir, dist)
+		feats += "4:%s;2:%s".format(htoken.cpos, dtoken.lemma)
+		feats += "4:%s;2:%s&%s%d".format(htoken.cpos, dtoken.lemma, dir, dist)
+		feats += "4:%s;4:%s".format(htoken.cpos, dtoken.pos)
+		feats += "4:%s;4:%s&%s%d".format(htoken.cpos, dtoken.pos, dir, dist)
+		
+		feats += ";1,3:%s,%s".format(dtoken.word, dtoken.pos)
+		feats += ";1,3:%s,%s&%s%d".format(dtoken.word, dtoken.pos, dir, dist)
+		feats += ";1,4:%s,%s".format(dtoken.word, dtoken.cpos)
+		feats += ";1,4:%s,%s&%s%d".format(dtoken.word, dtoken.cpos, dir, dist)
+		feats += ";1:%s".format(dtoken.word)
+		feats += ";1:%s&%s%d".format(dtoken.word, dir, dist)
+		feats += ";2,3:%s,%s".format(dtoken.lemma, dtoken.pos)
+		feats += ";2,3:%s,%s&%s%d".format(dtoken.lemma, dtoken.pos, dir, dist)
+		feats += ";2,4:%s,%s".format(dtoken.lemma, dtoken.cpos)
+		feats += ";2,4:%s,%s&%s%d".format(dtoken.lemma, dtoken.cpos, dir, dist)
+		feats += ";2:%s".format(dtoken.lemma)
+		feats += ";2:%s&%s%d".format(dtoken.lemma, dir, dist)
+		feats += ";3:%s".format(dtoken.pos)
+		feats += ";3:%s&%s%d".format(dtoken.pos, dir, dist)
+		feats += ";4:%s".format(dtoken.cpos)
+		feats += ";4:%s&%s%d".format(dtoken.cpos, dir, dist)
+		
+
+		
+		val partition = if (dist % 2 != 0) (dist+1) / 2 else dist / 2
+		for (cut <- 1 to Math.min(partition, 3)) { //Math.min(Array(partition, 2))) {
+			if (partition == cut) {
+				feats += "tw3,%s,%s,%s".format(tokens(small).pos, tokens(large).pos, tokens(small+cut).pos)
+				feats += "tw3,%s,%s,%s&%s%d".format(tokens(small).pos, tokens(large).pos, tokens(small+1).pos, dir, dist)				
+			}			
+			feats += "tw3,%s,%s,%s".format(tokens(small).pos, tokens(large).pos, tokens(large-1).pos)
+			feats += "tw3,%s,%s,%s&%s%d".format(tokens(small).pos, tokens(large).pos, tokens(large-1).pos, dir, dist)
+		}
+
+		for (cut <- 1 to partition) { //Math.min(Array(partition, 2))) {
+			if (partition == cut) {
+				feats += "tw4,%s,%s,%s".format(tokens(small).cpos, tokens(large).cpos, tokens(small+cut).cpos)
+				feats += "tw4,%s,%s,%s&%s%d".format(tokens(small).cpos, tokens(large).cpos, tokens(small+1).cpos, dir, dist)				
+			}			
+			feats += "tw4,%s,%s,%s".format(tokens(small).cpos, tokens(large).cpos, tokens(large-1).cpos)
+			feats += "tw4,%s,%s,%s&%s%d".format(tokens(small).cpos, tokens(large).cpos, tokens(large-1).cpos, dir, dist)
+		}
+			
+/*	
+			feats += "adj3:%s,%s,%s,%s,%s".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos, dir, dist)
+*/
+
+			feats += "adj3:%s,%s,%s,%s,%s".format("", "", tokens(small+1).pos, tokens(large-1).pos, tokens(large).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format("", "", tokens(small+1).pos, tokens(large-1).pos, tokens(large).pos, dir, dist)
+
+			feats += "adj3:%s,%s,%s,%s,%s,%s&%s%d".format("", tokens(small).pos, "", "", tokens(large).pos, tokens(large+1).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s".format("", tokens(small).pos, "", tokens(large-1).pos, tokens(large).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format("", tokens(small).pos, "", tokens(large-1).pos, tokens(large).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s".format("", tokens(small).pos, tokens(small+1).pos, "", tokens(large).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format("", tokens(small).pos, tokens(small+1).pos, "", tokens(large).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s,%s".format("", tokens(small).pos, tokens(small+1).pos, "", tokens(large).pos, tokens(large+1).pos)
+			feats += "adj3:%s,%s,%s,%s,%s,%s&%s%d".format("", tokens(small).pos, tokens(small+1).pos, "", tokens(large).pos, tokens(large+1).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s,%s".format("", tokens(small).pos, tokens(small+1).pos, tokens(large-1).pos, "", "")
+			feats += "adj3:%s,%s,%s,%s,%s,%s&%s%d".format("", tokens(small).pos, tokens(small+1).pos, tokens(large-1).pos, "", "", dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s,%s".format("", tokens(small).pos, tokens(small+1).pos, tokens(large-1).pos, tokens(large).pos, "")
+			feats += "adj3:%s,%s,%s,%s,%s,%s&%s%d".format("", tokens(small).pos, tokens(small+1).pos, tokens(large-1).pos, tokens(large).pos, "", dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s,%s".format(tokens(small-1).pos, tokens(small).pos, "", "", "", tokens(large+1).pos)
+			feats += "adj3:%s,%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, tokens(small).pos, "", "", "", tokens(large+1).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s".format(tokens(small-1).pos, tokens(small).pos, "", "", tokens(large).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, tokens(small).pos, "", "", tokens(large).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s,%s".format(tokens(small-1).pos, tokens(small).pos, "", "", tokens(large).pos, tokens(large+1).pos)
+			feats += "adj3:%s,%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, tokens(small).pos, "", "", tokens(large).pos, tokens(large+1).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s".format(tokens(small-1).pos, tokens(small).pos, "", tokens(large-1).pos, tokens(large).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, tokens(small).pos, "", tokens(large-1).pos, tokens(large).pos, dir, dist)
+
+// COARSE TAGS
+			feats += "adj4:%s,%s,%s,%s,%s".format("", "", tokens(small+1).cpos, tokens(large-1).cpos, tokens(large).cpos)
+			feats += "adj4:%s,%s,%s,%s,%s&%s%d".format("", "", tokens(small+1).cpos, tokens(large-1).cpos, tokens(large).cpos, dir, dist)
+			feats += "adj4:%s,%s,%s,%s,%s,%s".format("", tokens(small).cpos, "", "", tokens(large).cpos, tokens(large+1).cpos)
+			feats += "adj4:%s,%s,%s,%s,%s,%s&%s%d".format("", tokens(small).cpos, "", "", tokens(large).cpos, tokens(large+1).cpos, dir, dist)
+			feats += "adj4:%s,%s,%s,%s,%s".format("", tokens(small).cpos, "", tokens(large-1).cpos, tokens(large).cpos)
+			feats += "adj4:%s,%s,%s,%s,%s&%s%d".format("", tokens(small).cpos, "", tokens(large-1).cpos, tokens(large).cpos, dir, dist)
+			feats += "adj4:%s,%s,%s,%s,%s".format("", tokens(small).cpos, tokens(small+1).cpos, "", tokens(large).cpos)
+			feats += "adj4:%s,%s,%s,%s,%s&%s%d".format("", tokens(small).cpos, tokens(small+1).cpos, "", tokens(large).cpos, dir, dist)
+			feats += "adj4:%s,%s,%s,%s,%s,%s".format("", tokens(small).cpos, tokens(small+1).cpos, "", tokens(large).cpos, tokens(large+1).cpos)
+			feats += "adj4:%s,%s,%s,%s,%s,%s&%s%d".format("", tokens(small).cpos, tokens(small+1).cpos, "", tokens(large).cpos, tokens(large+1).cpos, dir, dist)
+			feats += "adj4:%s,%s,%s,%s,%s,%s".format("", tokens(small).cpos, tokens(small+1).cpos, tokens(large-1).cpos, "", "")
+			feats += "adj4:%s,%s,%s,%s,%s,%s&%s%d".format("", tokens(small).cpos, tokens(small+1).cpos, tokens(large-1).cpos, "", "", dir, dist)
+			feats += "adj4:%s,%s,%s,%s,%s,%s".format("", tokens(small).cpos, tokens(small+1).cpos, tokens(large-1).cpos, tokens(large).cpos, "")
+			feats += "adj4:%s,%s,%s,%s,%s,%s&%s%d".format("", tokens(small).cpos, tokens(small+1).cpos, tokens(large-1).cpos, tokens(large).cpos, "", dir, dist)
+			feats += "adj4:%s,%s,%s,%s,%s".format(tokens(small-1).cpos, "", "", tokens(large).cpos, tokens(large+1).cpos)
+			feats += "adj4:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).cpos, "", "", tokens(large).cpos, tokens(large+1).cpos, dir, dist)
+			feats += "adj4:%s,%s,%s,%s,%s,%s".format(tokens(small-1).cpos, tokens(small).cpos, "", "", "", tokens(large+1).cpos)
+			feats += "adj4:%s,%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).cpos, tokens(small).cpos, "", "", "", tokens(large+1).cpos, dir, dist)
+			feats += "adj4:%s,%s,%s,%s,%s".format(tokens(small-1).cpos, tokens(small).cpos, "", "", tokens(large).cpos)
+			feats += "adj4:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).cpos, tokens(small).cpos, "", "", tokens(large).cpos, dir, dist)
+			feats += "adj4:%s,%s,%s,%s,%s,%s".format(tokens(small-1).cpos, tokens(small).cpos, "", "", tokens(large).cpos, tokens(large+1).cpos)
+			feats += "adj4:%s,%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).cpos, tokens(small).cpos, "", "", tokens(large).cpos, tokens(large+1).cpos, dir, dist)
+			feats += "adj4:%s,%s,%s,%s,%s".format(tokens(small-1).cpos, tokens(small).cpos, "", tokens(large-1).cpos, tokens(large).cpos)
+			feats += "adj4:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).cpos, tokens(small).cpos, "", tokens(large-1).cpos, tokens(large).cpos, dir, dist)
+		
+		return feats.toArray
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+
+package narad.nlp.parse
 import narad.nlp.srl.{SRLToken => RToken, SRLDatum}
 import scala.collection.mutable.ArrayBuffer
 
@@ -280,6 +533,17 @@ object McDonaldFeatures {
 	
 //	def linearFeatures()
 }
+
+*/
+
+
+
+
+
+
+
+
+
 
 
 /*

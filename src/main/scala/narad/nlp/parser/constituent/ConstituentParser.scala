@@ -1,16 +1,21 @@
+/*
 package narad.nlp.parser.constituent
 import narad.bp.structure._
-import narad.nlp.trees.{Span, SpanReader, Tree, TreeReader}
-import narad.projects.bpdp._
+import narad.nlp.trees.{Span, Token, Tree}
+import narad.io.reader.{SpanReader, TreeReader}
 import scala.collection.mutable.ArrayBuffer
 import scala.util.matching._
+import narad.bp.util._
+import narad.util.ArgParser
+import java.io.FileWriter
 
-class Parser(var graph: FactorGraph) extends Model {
+
+class Parser(var graph: FactorGraph) extends FactorGraphModel {
 	val indicesPattern    = """\(([0-9]+),([0-9]+)\) """.r
 	val brackPattern      = """brack\(([0-9]+),([0-9]+)\)""".r
-	val labelPattern      = """brackLabel(.+)\(([0-9]+),([0-9]+)\)""".r
+	val labelPattern      = """brackLabel\(([0-9]+),([0-9]+,(.+))\)""".r
 	val unaryPattern      = """unary\(([0-9]+),([0-9]+)\)""".r
-	val unaryLabelPattern = """unaryLabel(.+)\(([0-9]+),([0-9]+)\)""".r
+	val unaryLabelPattern = """unaryLabel\(([0-9]+),([0-9]+),(.+)\)""".r
 	
 	def indices(s: String): (Int, Int) = s match {
 		case indicesPattern(start, end) => Tuple(start.toInt, end.toInt)
@@ -18,18 +23,18 @@ class Parser(var graph: FactorGraph) extends Model {
 	}
 	
 	def maxLabel(pots: Array[Potential]): String = {
-		println("label potentials size = %d".format(pots.size))
+//		println("label potentials size = %d".format(pots.size))
 		var max = Double.NegativeInfinity
 		var label = null.asInstanceOf[String]
 		for (pot <- pots) {
 			if (pot.value > max) {
 				max = pot.value
 				if (pot.name.contains("brack")) {
-					val labelPattern(plabel, pstart, pend) = pot.name
+					val labelPattern(pstart, pend, plabel) = pot.name
 					label = plabel					
 				}
 				else if (pot.name.contains("unary")) {
-					val unaryLabelPattern(plabel, pstart, pend) = pot.name
+					val unaryLabelPattern(pstart, pend, plabel) = pot.name
 					label = plabel										
 				}
 			}
@@ -37,10 +42,14 @@ class Parser(var graph: FactorGraph) extends Model {
 		return label
 	}
 
+/*
 	def potentialBeliefs: Array[Potential] = {
 		val beliefs = new ArrayBuffer[Potential]
-		for (factor <- graph.factors) { println("beliefs  in " + factor.name + " = " + factor.getBeliefs(graph).mkString(";")); beliefs ++= factor.getBeliefs(graph) }
-		println(beliefs.size)
+		for (factor <- graph.factors) {
+			// println("beliefs  in " + factor.name + " = " + factor.getBeliefs(graph).mkString(";"));
+			 beliefs ++= factor.getBeliefs(graph) 
+			}
+		//println(beliefs.size)
 		return beliefs.toArray
 	}
 	
@@ -51,30 +60,48 @@ class Parser(var graph: FactorGraph) extends Model {
 		for (variable <- graph.variables) { beliefs ++= variable.getBeliefs(graph) }
 		return beliefs.toArray
 	}
+*/
 	
 	def decode(words: Array[String], tags: Array[String]): Tree = {
 //		println("Decoding with words: %s".format(words.mkString(" ")))
 		val slen = words.size
-		val beliefs = potentialBeliefs
+		val beliefs = graph.potentialBeliefs
+		val spans = new ArrayBuffer[Span]
+		if (slen > 2) {
+			try {
+			val ckybeliefs = ckyBrackets(beliefs.filter(_.name.startsWith("brack(")), slen)
+			val cspans = ckybeliefs.filter(_.value == 1).map { brack =>
+				val brackPattern(start, end) = brack.name
+				val labels = beliefs.filter(_.name.matches("brackLabel\\(%s,%s,.+\\)".format(start, end)))
+				val label = if (labels.size == 0) {
+					System.err.println("No label potentials found corresponding to bracket at (%d,%d), performing unlabeled decoding.")
+					""
+				}
+				else {
+					maxLabel(labels)					
+				}
+				new Span(start.toInt, end.toInt, label, false)
+			}
+			spans ++= cspans
+		}
+		catch {
+		  case e: Exception => System.err.println("Could not decode tree; Using unary prediction only.")
+		}
+	//	if (!spans.exists(s => s.start == 0 && s.end == slen)) spans += Span(0, slen, "TOP", false)
+		}
 //		println("pot_beliefs:")
 //		beliefs.foreach(println(_))
-		val ckybeliefs = ckyBrackets(beliefs.filter(_.name.startsWith("brack")), slen)
-		val spans = ckybeliefs.filter(_.value == 1).map { brack =>
-			val brackPattern(start, end) = brack.name
-			val label = maxLabel(beliefs.filter(_.name.matches("brackLabel.+\\(%s,%s\\)".format(start, end))))
-			new Span(start.toInt, end.toInt, label, false)
-		}
 //		println("spans:")
 //		spans.foreach(println(_))
 		
-		val uspans = potentialBeliefs.filter(p => p.name.contains("unary(") && p.value > 0.5).map { unary =>
+		val uspans = graph.potentialBeliefs.filter(p => p.name.contains("unary(") && p.value > 0.5).map { unary =>
 			val unaryPattern(start, end) = unary.name
-			val label = maxLabel(beliefs.filter(_.name.matches("unaryLabel.+\\(%s,%s\\)".format(start, end))))
+			val label = maxLabel(beliefs.filter(_.name.matches("unaryLabel\\(%s,%s,.+\\)".format(start, end))))
 			new Span(start.toInt, end.toInt, label, true)
 		}
 //		println("unaries:")
-		uspans.foreach(println(_))
-		val tree = SpanReader.spansToTree(spans.filter(!_.label.contains("@")) ++ uspans, slen)
+//		uspans.foreach(println(_))
+		val tree = SpanReader.spansToTree(spans.toArray.filter(s => !s.label.contains("@") && s.width != slen) ++ uspans, slen)
 		tree.annotateWithIndices(0)
 		tree.setYield(words, tags)
 		return tree
@@ -139,7 +166,71 @@ class Parser(var graph: FactorGraph) extends Model {
 		
 	}
 	
+	/*
+	
+	double cky_brackets(const double *scores, int slen, int *out) {
+	  multi_array<double, 2> beta(extents[slen+1][slen+1]);
+	  multi_array<int, 2> split(extents[slen+1][slen+1]);
+	  multi_array<bool, 2> brack(extents[slen+1][slen+1]);
+	  const double *sp = scores;
+
+	  for ( int i = 0; i < slen; ++i ) beta[i][i+1] = 0;
+	  for ( int w = 2; w < slen; ++w ) {
+	    for ( int i = 0; i <= (slen - w); ++i ) {
+	      int k = i + w;
+	      double inside = R_NegInf;
+	      int best = 0;
+	      for ( int j = i + 1; j < k; ++j ) {
+		double s = beta[i][j] + beta[j][k];
+	//	cout << "s = " << s << endl;
+		if ( s > inside ) {
+		  inside = s;
+		  best = j;
+		}
+	      }
+		//		cout << "best = " << best << endl;
+
+	      beta[i][k] = inside + *sp++;
+	      split[i][k] = best;
+	    }
+	  }
+	//	cout << endl;
+	//	cout << "done in triplet loop" << endl;
+	  double inside = R_NegInf;
+	  int best = 0;
+	-----------------------------------
+	  for ( int j = 1; j < slen; ++j ) {
+	    double s = beta[0][j] + beta[j][slen];
+	//		cout << "s2 = " << s << endl;
+	    if ( s > inside ) {
+	      inside = s;
+	      best = j;
+	    }
+	  }
+	//	cout << "done with second loop" << endl;
+	  beta[0][slen] = inside;
+	  split[0][slen] = best;
+	//	cout << "inside = " << inside << endl;
+	//	cout << "best = " << best << endl;
+	//	cout << "backtrace" << endl;
+	  cky_backtrace(0, slen, split, brack);
+	//	cout << "done with backtrace" << endl;
+	  int *op = out;
+	  for ( int w = 2; w < slen; ++w ) {
+	    for ( int i = 0; i <= (slen - w); ++i ) {
+	      int k = i + w;
+	      *op = brack[i][k] ? 1 : 0;
+	      ++op;
+	    }
+	  }
+	//	cout << "done with final loop" << endl;
+	  return beta[0][slen];
+	}
+	*/
+	
 	def ckyBrackets(potentials: Array[Potential], slen: Int): Array[Potential] = {
+		System.err.println("%d pots in cky-bracks.".format(potentials.size))
+		assert(!potentials.exists(!_.name.startsWith("brack")), "There is a potential in ckyBrackets that is not a bracket potential.")
 		val beta  = Array.ofDim[Double](slen+1, slen+1)
 		val split = Array.ofDim[Int](slen+1, slen+1)
 		val brack = Array.ofDim[Boolean](slen+1, slen+1)
@@ -158,7 +249,8 @@ class Parser(var graph: FactorGraph) extends Model {
 				}
 			}
 			val sp = potentials.filter(_.name == "brack(%d,%d)".format(i,k))(0)
-			beta(i)(k) = inside + sp.value  // WTF?
+//			println("Brack(%d,%d) = " + sp)
+			beta(i)(k) = inside + sp.value
 			split(i)(k) = best
 		}
 		var inside = Double.NegativeInfinity
@@ -189,10 +281,12 @@ class Parser(var graph: FactorGraph) extends Model {
 		val j = split(i)(k)
 		if (j > (i+1)) {
 			brack(i)(j) = true
+//			println("backtrace-1(%d,%d)".format(i, j))
 			ckyBacktrace(i, j, split, brack)
 		}
 		if (j < (k-1)) {
 			brack(j)(k) = true
+//			println("backtrace-2(%d,%d)".format(j, k))
 			ckyBacktrace(j, k, split, brack)
 		}
 		return 1
@@ -201,13 +295,336 @@ class Parser(var graph: FactorGraph) extends Model {
 	override def toString = graph.toString
 }
 
+/*
+void cky_backtrace(int i, int k,
+		   const multi_array<int, 2>& split,
+		   multi_array<bool, 2>& brack) {
+  int j = split[i][k];
+//	cout << endl;
+//	cout << "i = " << i << endl;
+//	cout << "j = " << j << endl;
+//	cout << "k = " << k << endl;
+  if ( j > (i+1) ) {
+    brack[i][j] = true;
+    cky_backtrace(i, j, split, brack);
+  }
+  if ( j < (k-1) ) {
+    brack[j][k] = true;
+    cky_backtrace(j, k, split, brack);
+  }
+}
+*/
+
 object Parser {
-	val brackPattern 			= """brack\(([0-9]+),([0-9]+)\)""".r
-	val brackLabelPattern = """brackLabel(.+)\(([0-9]+),([0-9]+)\)""".r
-	val unaryPattern 			= """unary\(([0-9]+),([0-9]+)\)""".r
-	val unaryLabelPattern = """unaryLabel(.+)\(([0-9]+),([0-9]+)\)""".r
-	 
+	val BRACK_PATTERN 			= """brack\(([0-9]+),([0-9]+)\)""".r
+	val BRACK_LABEL_PATTERN = """brackLabel\(([0-9]+),([0-9]+),(.+)\)""".r
+	val UNARY_PATTERN 			= """unary\(([0-9]+),([0-9]+)\)""".r
+	val UNARY_LABEL_PATTERN = """unaryLabel\(([0-9]+),([0-9]+),(.+)\)""".r
+	val INDICES_PATTERN     = """.+\(([0-9]+),([0-9]+).+""".r
+	val STARTPOS = "START"
+	val ENDPOS = "END"
 	
+
+	def addBracketPrediction(model: FactorGraphBuilder, pots: Array[Potential], slen: Int) = {
+		for (i <- 0 until pots.size) {
+			pots(i).name match {
+				case BRACK_PATTERN(s, e) => {
+					val start = s.toInt
+					val end = e.toInt
+					model.addVariable("brackvar(%d,%d)".format(start, end), 2)
+					if (start == 0 && end == slen) {
+						model.addTable1Factor("brackvar(%d,%d)".format(start, end), "brackfac(%d,%d)".format(start,end), Array(new Potential(0, "null", true), new Potential(1, "brack(%d,%d)".format(start, end), true)))  //Array(pots(i))) 
+					}
+					else {
+						model.addUnaryFactor("brackvar(%d,%d)".format(start, end), "brackfac(%d,%d)".format(start,end), Array(pots(i)))				
+					}
+				}
+				case _=> //System.err.println("Brack pattern not matched on %s".format(pots(i).name))			
+			}
+		}
+//		println("SLEN = " + slen)
+		model.addCKYFactor(new Regex("brackvar"), slen=slen)
+	}
+
+
+	def addLabelPrediction(model: FactorGraphBuilder, pots: Array[Potential], slen: Int) = {
+		for (i <- 0 until pots.size) {
+			pots(i).name match {
+				case BRACK_LABEL_PATTERN(s, e, label) => {
+					val start = s.toInt
+					val end = e.toInt
+					model.addVariable("labelvar(%d,%d,%s)".format(start, end, label), 2)
+					model.addUnaryFactor("labelvar(%d,%d,%s)".format(start, end, label), "labelfac(%d,%d,%s)".format(start, end, label), Array(pots(i)))											
+				}
+				case _=> //System.err.println("Label pattern not matched on %s".format(pots(i).name))
+			}
+		}
+		for (width <- 2 to slen; start <- 0 to (slen - width)) {
+			val end = start + width
+			if (start == 0 && end == slen) {
+//				model.addIsAtMost1Factor(new Regex("labelvar\\(%d,%d,.+\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))								
+				model.addAtMost1Factor(new Regex("labelvar\\(%d,%d,.+\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))								
+			}
+			else {
+				model.addIsAtMost1Factor(new Regex("brackvar\\(%d,%d\\)".format(start, end)), new Regex("labelvar\\(%d,%d,.+\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))				
+			}
+		}
+	}
+
+	def addBracketAndLabelPrediction(model: FactorGraphBuilder, pots: Array[Potential], slen: Int) = {
+//		System.err.println("In brackAndLabel adder")
+		val groups = pots.filter(_.name.contains("brack")).groupBy{ p =>
+			val INDICES_PATTERN(startstr, endstr) = p.name
+			Tuple(startstr.toInt, endstr.toInt)
+//			startstr + "_" + endstr
+		}
+//		println(groups.size)
+		val ckyidxs = new ArrayBuffer[Int]
+		for (g <- groups) {
+			val start = g._1._1
+			val end   = g._1._2
+			val gpots = g._2
+			val iidx = model.addVariable("brackvar(%d,%d)".format(start, end), 2)
+			ckyidxs += iidx
+			if (start == 0 && end == slen) {
+				model.addTable1Factor("brackvar(%d,%d)".format(start, end), "brackfac(%d,%d)".format(start,end), Array(new Potential(0, "brackx2(%d,%d)".format(start, end), true), new Potential(1, "brack(%d,%d)".format(start, end), true)))
+			}
+			else {
+				model.addUnaryFactor("brackvar(%d,%d)".format(start, end), "brackfac(%d,%d)".format(start,end), Array(gpots(0)))				
+			}
+
+			val fidx = model.addFactor(new IsAtMost1Factor(model.ncount, "parseIsAtMost(%d,%d)".format(start, end)))
+			model.addEdge(iidx, fidx)
+			for (i <- 1 until gpots.size) {
+				val BRACK_LABEL_PATTERN(ss, es, label) = gpots(i).name
+				val tidx = model.addVariable("labelvar(%d,%d,%s)".format(start, end, label), 2)
+				val lidx = model.addFactor(FactorFactory.createUnaryFactor(model.ncount, "labelfac(%d,%d,%s)".format(start, end, label), gpots(i)))
+//				model.addUnaryFactor("labelvar(%d,%d,%s)".format(start, end, label), "labelfac(%d,%d,%s)".format(start, end, label), Array(gpots(i)))												
+				model.addEdge(tidx, lidx)
+				model.addEdge(tidx, fidx)
+			}			
+//			println(g)
+//			println
+		}
+		val fidx = model.addFactor(new CKYFactor(model.ncount, "CKY-Factor", slen))
+		ckyidxs.foreach(model.addEdge(_, fidx))
+//		model.addCKYFactor(new Regex("brackvar"), slen=slen)
+	}
+	
+	def addAllPrediction(model: FactorGraphBuilder, pots: Array[Potential], slen: Int, 
+											 useLabels: Boolean = true, useUnaries: Boolean = true) = {
+		val groups = pots.groupBy{ p =>
+			val INDICES_PATTERN(startstr, endstr) = p.name
+			Tuple(startstr.toInt, endstr.toInt)
+		}
+		
+		val ckyidxs = new ArrayBuffer[Int]
+		for ( width <- 1 to slen; start <- 0 to (slen - width)) {
+			val end = start + width
+			val gpots = groups(Tuple(start, end))
+//			println(width + ":")
+//			println("----")
+//			gpots.foreach(p => println(p.name))
+			if (width > 1 && slen > 2) {
+				val iidx = model.addVariable("brackvar(%d,%d)".format(start, end), 2)
+				ckyidxs += iidx
+				if (start == 0 && end == slen) {
+					model.addTable1Factor("brackvar(%d,%d)".format(start, end), "brackfac(%d,%d)".format(start,end), Array(new Potential(0, "brackx2(%d,%d)".format(start, end), true), new Potential(1, "brack(%d,%d)".format(start, end), true)))
+				}
+				else {
+					model.addUnaryFactor("brackvar(%d,%d)".format(start, end), "brackfac(%d,%d)".format(start,end), Array(gpots(0)))				
+				}
+				if (useLabels) {
+					val fidx = model.addFactor(new IsAtMost1Factor(model.ncount, "parseIsAtMost(%d,%d)".format(start, end)))
+					model.addEdge(iidx, fidx)
+					for (i <- 1 until gpots.size) {
+						val BRACK_LABEL_PATTERN(ss, es, label) = gpots(i).name
+						val tidx = model.addVariable("labelvar(%d,%d,%s)".format(start, end, label), 2)
+						val lidx = model.addFactor(FactorFactory.createUnaryFactor(model.ncount, "labelfac(%d,%d,%s)".format(start, end, label), gpots(i)))
+						model.addEdge(tidx, lidx)
+						model.addEdge(tidx, fidx)
+					}								
+				}				
+			}
+						
+			if (width == 1 && useUnaries) {
+				val iidx = model.addVariable("unaryvar(%d,%d)".format(start, end), 2)
+				model.addUnaryFactor("unaryvar(%d,%d)".format(start, end), "unaryfac(%d,%d)".format(start,end), Array(gpots(0)))				
+				if (useLabels) {
+					val fidx = model.addFactor(new IsAtMost1Factor(model.ncount, "unaryIsAtMost(%d,%d)".format(start, end)))
+					model.addEdge(iidx, fidx)
+					for (i <- 1 until gpots.size) {
+						val UNARY_LABEL_PATTERN(ss, es, label) = gpots(i).name
+						val tidx = model.addVariable("unaryLabelvar(%d,%d,%s)".format(start, end, label), 2)
+						val lidx = model.addFactor(FactorFactory.createUnaryFactor(model.ncount, "unaryLabelfac(%d,%d,%s)".format(start, end, label), gpots(i)))
+						model.addEdge(tidx, lidx)
+						model.addEdge(tidx, fidx)
+					}								
+				}				
+			}
+		}
+		val fidx = model.addFactor(new CKYFactor(model.ncount, "CKY-Factor", slen))
+		ckyidxs.foreach(model.addEdge(_, fidx))
+	}
+
+			
+	def addUnaryPrediction(model: FactorGraphBuilder, pots: Array[Potential], slen: Int) = {
+		for (i <- 0 until pots.size) {
+			pots(i).name match {
+				case UNARY_PATTERN(s, e) => {
+					val start = s.toInt
+					model.addVariable("unaryvar(%d,%d)".format(start, start+1), 2)
+					model.addUnaryFactor("unaryvar(%d,%d)".format(start, start+1), "unaryfac(%d,%d)".format(start, start+1), Array(pots(i)))											
+				}
+				case UNARY_LABEL_PATTERN(s, e, label) => {
+					val start = s.toInt
+					model.addVariable("unaryLabelvar(%d,%d,%s)".format(start, start+1, label), 2)
+					model.addUnaryFactor("unaryLabelvar(%d,%d,%s)".format(start, start+1, label), "unaryLabelfac(%d,%d,%s)".format(start, start+1, label), Array(pots(i)))											
+					//					fg.addTable1Factor("unaryvar(%d,%d)".format(start, start+1), "unaryfac(%d,%d)".format(start, start+1), Array[String]("unary(%d,%d)".format(start, start+1)), Array[Double](0,1))				
+					// WAS TABLE1FACTOR IN BPDP
+				}
+				case _=> // System.err.println("Unary pattern not matched on %s".format(pots(i).name))
+			}
+		}
+		for (start <- 0 until slen) {
+			val end = start+1
+//				model.addIsAtMost1Factor(new Regex("unaryvar\\(%d,%d\\)".format(start, end)), new Regex("unaryLabelvar\\(%d,%d,.+\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))
+				model.addIsAtMost1Factor(new Regex("unaryvar\\(%d,%d\\)".format(start, end)), new Regex("unaryLabelvar\\(%d,%d,.+\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))
+		}
+	}
+
+	def constructPiecewise(pots: Array[Potential], slen: Int): Parser = {
+//		System.err.println("Constructing traditional")
+		val fg = new FactorGraphBuilder(pots)
+		if (slen > 2) {
+			addBracketPrediction(fg, pots, slen)
+			addLabelPrediction(fg, pots, slen)			
+		}
+		addUnaryPrediction(fg, pots, slen)
+		new Parser(fg.toFactorGraph)
+	}
+	
+		def constructBracketModel(pots: Array[Potential], slen: Int): Parser = {
+			val fg = new FactorGraphBuilder(pots)
+			if (slen > 2) {
+				addBracketPrediction(fg, pots, slen)
+//				addLabelPrediction(fg, pots, slen)			
+			}
+//			addUnaryPrediction(fg, pots, slen)
+			new Parser(fg.toFactorGraph)
+		}
+		
+	def constructFast(pots: Array[Potential], slen: Int): Parser = {
+//		System.err.println("Constructing fast")
+		val fg = new FactorGraphBuilder(pots)
+		addAllPrediction(fg, pots, slen, true, true)
+		new Parser(fg.toFactorGraph)
+	}
+	
+	def construct(ex: PotentialExample, pots: Array[Potential]): Parser = {
+		val words     = ex.attributes("@words").split(" ")
+		val slen      = words.size
+		System.err.print("Constructing Parser (%d words, %d pots): ".format(slen, pots.size))
+		var startTime = System.currentTimeMillis()
+//		val model = Parser.constructFast(pots, slen)
+		val model = Parser.constructBracketModel(pots, slen)
+		System.err.println((System.currentTimeMillis() - startTime) / 1000.0 + "s.")		
+		model
+	}
+	
+	
+	def featurizeSyntax(ctree: Tree, stats: ParserStatistics, prune: Boolean, out: FileWriter, 
+		                  bpdp: Boolean = false, options: ArgParser) = {
+		var btree = ctree.binarize.removeUnaryChains
+		btree.annotateWithIndices()
+		val useLabels = options.getBoolean("--use.syntax.labels", true)
+		val useUnaries = options.getBoolean("--use.syntax.unaries", true)
+		val toks = btree.tokens
+		if (options.getBoolean("--print.header", true)) {
+			out.write("@slen\t%d\n".format(toks.size))
+			out.write("@words\t%s\n".format(toks.map(_.word).mkString(" ")))
+			out.write("@tags\t%s\n".format(toks.map(_.pos).mkString(" ")))
+		}
+		val labels = stats.constituentLabels.toArray
+		val spanName   = options.getString("--span.name", "brack")
+		val labelName  = options.getString("--label.name", "brackLabel")
+		val uspanName  = options.getString("--unary.span.name", "unary")
+		val ulabelName = options.getString("--unary.label.name", "unaryLabel")
+		val testMode = false
+			val window = 5
+			val length = btree.tokens.length
+			val btokens = pad(btree.tokens, window, window)
+			for ( width <- 2 to length; start <- 0 to (length - width)) { //if (start > 0 || width <= length)) {
+				val end = start + width
+				val si = start + window
+				val ei = end + window-1
+				val spanFeatures = ConstituentFeatureFactory.syntaxSpanFeatures(btokens, si, ei)
+				val labelFeatures = spanFeatures //++ ConstituentFeatureFactory.syntaxLabelFeatures(tokens, si, ei)
+				val labelSet = btree.labels(start, end)
+				out.write("%s(%d,%d)\t%s%s\n".format(spanName, start, end, if (labelSet.size > 0) "+" else "", spanFeatures.mkString(" ")))
+				if (useLabels) {
+					for (label <- labels) {
+						val builder = new StringBuilder()
+						for (f <- labelFeatures) builder.append(" " + label + "_" + f)
+						if (bpdp) {
+							out.write("%s%s(%d,%d)\t%s%s\n".format(labelName, label, start, end, if (labelSet contains label) "+" else "", builder.toString.trim))												
+						}
+						else {
+							out.write("%s(%d,%d,%s)\t%s%s\n".format(labelName, start, end, label, if (labelSet contains label) "+" else "", builder.toString.trim))												
+						}
+					}													
+				}
+			}
+
+			if (useUnaries) {
+				val uterms = stats.unaryLabels.toArray //clabels.filter(!_.contains("@"))
+				val tokens = ctree.tokens
+				for (idx <- 0 until length) {
+					val features = ConstituentFeatureFactory.unaryFeatures(ctree, idx) //tree.removeUnaryChains, idx)
+					val hasUnary = ctree.containsUnarySpan(idx, idx+1)
+					out.write("%s(%d,%d)\t%s%s\n".format(uspanName, idx, idx+1, if (hasUnary) "+" else "", features.map("U-%s".format(_)).mkString(" ")))
+					var ccount = 0
+					for (uterm <- uterms) {
+						val correctLabel = ctree.containsUnarySpan(idx, idx+1, uterm)
+						if (correctLabel) {
+							ccount += 1
+						}
+						val builder = new StringBuilder()
+						for (f <- features) {
+							builder.append(" [unary-" + uterm + "]-" + f)
+						}
+						if (bpdp) {
+							out.write("%s%s(%d,%d)\t%s%s\n".format(ulabelName, uterm, idx, idx+1, if (correctLabel) "+" else "", builder.toString.trim))							
+						}
+						else {
+							out.write("%s(%d,%d,%s)\t%s%s\n".format(ulabelName, idx, idx+1, uterm, if (correctLabel) "+" else "", builder.toString.trim))							
+						}
+					}
+				}				
+			}
+			out.write("\n")
+		}
+
+		def pad(array: Array[Token], spad: Int, epad: Int): Array[Token] = {
+			val buffer = new ArrayBuffer[Token]
+			val end = spad + epad + array.size
+			for (i <- 0 until end){
+				if (i < spad){
+					buffer += Token("[START%d]".format(spad-i), STARTPOS)
+				}
+				else if (i >= array.size + spad){
+					buffer += Token("[END%d]".format(1 + i - (array.size + spad)), ENDPOS)
+				}
+				else{
+					buffer += array(i-spad)	
+				}	
+			}
+			return buffer.toArray
+		}	
+}
+		
+		
+/*	
 	def construct(pots: Array[Potential], slen: Int, 
 								 labels: Array[String] = Array[String](), grammar: Array[String] = Array[String]()): Parser = {
 //		if (true) return construct3(pots, slen)
@@ -218,12 +635,13 @@ object Parser {
 					val start = s.toInt
 					val end = e.toInt
 					fg.addVariable("brackvar(%d,%d)".format(start, end), 2)
-//					if (start == 0 && end == slen) {
-//						fg.addTable1Factor("brackvar(%d,%d)".format(start, end), "brackfac(%d,%d)".format(start,end), Array[Potential](new Potential(0.0, "-brack(%d,%d)".format(start, end), false), Array[Double](0,1))				
-//					}
-//					else {
+					if (start == 0 && end == slen) {
+						fg.addTable1Factor("brackvar(%d,%d)".format(start, end), "brackfac(%d,%d)".format(start,end), Array(pots(i))) 
+						//Array[Potential](new Potential(0.0, "+brack(0,%d)".format(end), true)))				
+					}
+					else {
 						fg.addUnaryFactor("brackvar(%d,%d)".format(start, end), "brackfac(%d,%d)".format(start,end), Array(pots(i)))				
-//					}
+					}
 				}
 				case brackLabelPattern(label, s, e) => {
 					val start = s.toInt
@@ -249,16 +667,22 @@ object Parser {
 		fg.addCKYFactor(new Regex("brackvar"), slen=slen)		
 		for (width <- 2 to slen; start <- 0 to (slen - width)) {
 			val end = start + width
-//			fg.addIsAtMost1Factor("brackvar\\(%d,%d\\)".format(start, end), "label.+var\\(%d,%d\\)".format(start, end), "isAtMost(%d,%d)".format(start, end))
-				fg.addIsAtMost1Factor(new Regex("brackvar\\(%d,%d\\)".format(start, end)), new Regex("label.+var\\(%d,%d\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))
+			if (start == 0 && end == slen) {
+				fg.addAtMost1Factor(new Regex("label.+var\\(%d,%d\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))								
+			}
+			else {
+				fg.addIsAtMost1Factor(new Regex("brackvar\\(%d,%d\\)".format(start, end)), new Regex("label.+var\\(%d,%d\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))				
+			}
 		}
 		for (start <- 0 until slen) {
 			val end = start+1
-//			fg.addIsAtMost1Factor("unaryvar\\(%d,%d\\)".format(start, end), "unaryLabel.+var\\(%d,%d\\)".format(start, end), "isAtMost(%d,%d)".format(start, end))
 				fg.addIsAtMost1Factor(new Regex("unaryvar\\(%d,%d\\)".format(start, end)), new Regex("unaryLabel.+var\\(%d,%d\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))
 		}
 		new Parser(fg.toFactorGraph)
 	}
+
+	//			fg.addIsAtMost1Factor("unaryvar\\(%d,%d\\)".format(start, end), "unaryLabel.+var\\(%d,%d\\)".format(start, end), "isAtMost(%d,%d)".format(start, end))
+	//			fg.addIsAtMost1Factor("brackvar\\(%d,%d\\)".format(start, end), "label.+var\\(%d,%d\\)".format(start, end), "isAtMost(%d,%d)".format(start, end))
 
 	def construct2(pots: Array[Potential], slen: Int, 
 		labels: Array[String] = Array[String](), grammar: Array[String] = Array[String]()): Parser = {
@@ -335,6 +759,8 @@ object Parser {
 		new Parser(fg.toFactorGraph)		
 	}
 }
+
+*/
 
 /*
 val ckyLinks = new ArrayBuffer[Int]
@@ -647,7 +1073,7 @@ val nts = beliefs.map { b =>
 
 
 
-
+*/
 
 
 

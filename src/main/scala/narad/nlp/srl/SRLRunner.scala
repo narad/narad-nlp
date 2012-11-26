@@ -1,9 +1,10 @@
+/*
+
 package narad.nlp.srl
 import narad.util.ArgParser
 import narad.bp.structure._
 import narad.bp.train._
 import narad.bp.util._
-import narad.projects.bpdp._
 import scala.collection.mutable.ArrayBuffer
 
 object SRLRunner {
@@ -13,33 +14,37 @@ object SRLRunner {
 		val fidxFile   = options.getString("--fidx.file", "null")
 		val initFile   = options.getString("--init.file", "null")
 		val outFile    = options.getString("--out.file", "srl.model")
-		val labelFile  = options.getString("--label.file", "srl.labels")
+		val labelFile  = options.getString("--label.file", "srl.args")
 		val pvsize     = options.getInt("--pv.size", -1)
 		val maxEx      = options.getInt("--max.examples", -1)
 		val iterations = options.getInt("--iterations", 10)
 		val bpIters 	 = options.getInt("--bp.iters", 10)
 		val rate       = options.getDouble("--rate", 0.3)
 		val initRate   = options.getDouble("--init.rate", 0.01)
+		val variance   = options.getDouble("--var", 1.0)
 		val verbose 	 = options.getBoolean("--verbose", false)
-//		val labels = if (labelFile == null) Array[String]() 
-//		else io.Source.fromFile(labelFile).getLines.toArray.map(_.trim)
+		val maxdist = 1000 //readLines(options.getString("--dist.file", "srl.dist"))(0).toInt
+		
+		val labels = if (labelFile == null) Array[String]() 
+  		else io.Source.fromFile(labelFile).getLines.toArray.map(_.trim)
+
 		if (options.getBoolean("--train", false)) {
 			var btime = System.currentTimeMillis()
-			train(fidxFile, initFile, outFile, pvsize, iterations, bpIters, maxEx, verbose)		
+			train(fidxFile, initFile, outFile, pvsize, iterations, bpIters, maxEx, maxDist=maxdist, rate=rate, variance=variance, verbose)		
 			println("TOTAL TIME = " + (System.currentTimeMillis() - btime))	
 		}
 		else if (options.getBoolean("--test", false)) {
-			test(fidxFile, initFile, bpIters, verbose)
+			test(fidxFile, initFile, bpIters, maxDist=maxdist, verbose)
 		}
 		val i = 0
 	}
 
 	def train(fidxFile: String, initFile: String, outFile: String, pvsize: Int, iterations: Int = 10,
-						bpIters: Int = 10, maxEx: Int = -1, verbose: Boolean = false) = {
+						bpIters: Int = 10, maxEx: Int = -1, maxDist: Int, rate: Double=0.1, variance: Double=1.0, verbose: Boolean = false) = {
 		var params = init(initFile, pvsize)
 		val nrExamples = if (maxEx == -1) countExamples(fidxFile) else maxEx
 		for (i <- 0 until iterations) {
-			var nparams = SGDTrainer.train(params, fidxFile, construct, maxExamples = nrExamples, bpIters = 10, verbose = verbose)
+			var nparams = SGDTrainer.train(params, fidxFile, construct, maxExamples = nrExamples, bpIters = 10, rate=rate, variance=variance, verbose = verbose)
 			if (i+1 == iterations) {
 				writeToFile(nparams.tail, outFile + ".pv")
 			}
@@ -51,7 +56,7 @@ object SRLRunner {
 	}
 
 
-	def test(fidxFile: String, initFile: String, bpIters: Int = 10, verbose: Boolean = false) = {
+	def test(fidxFile: String, initFile: String, bpIters: Int = 10, maxDist: Int, verbose: Boolean = false) = {
 		var params = init(initFile)
 		for (ex <- PotentialReader.read(fidxFile)) {
 			val feats   = ex.getFeatures				
@@ -60,28 +65,16 @@ object SRLRunner {
 			pots.foreach { pot => pot.value = Math.exp(pot.value) }
 			val model = construct(ex, pots)
 			
-			SGDTrainer.runBP(model.graph, bpIters, dinit = 1, threshold = 0.1, verbose = verbose)
+			SGDTrainer.runBP(model, bpIters, dinit = 1, threshold = 0.1, verbose = verbose)
 			val words  = ex.attributes("@words").split(" ")
 			val tags  = ex.attributes("@tags").split(" ")
+			val attrs = Array("@slen", "@words", "@tags", "@lemmas", "@roles", "@gpreds")
+			for (attr <- attrs) {
+				println(attr + "\t" + ex.attributes(attr))
+			}
 			model.decode(words, tags)
 		}
 	}	
-/*	
-			val words  = ex.attributes("@words").split(" ")
-			val pots = ex.potentials
-			val names   = pots.map(_.name)
-			val feats   = pots.map(_.features)
-			val scores  = computePotentials(params, feats).map(Math.exp(_))
-
-			val model = SRLModel.construct(names, scores, labels, words.size)
-			println("GRAPH:")
-			println(model.graph.toString())
-			var conv = runBP(model.graph, 5, 1, 0.1)
-			model.decode(words)
-			println
-		}
-	}
-*/
 
 
 def init(initFile: String, pvsize: Int = 0): Array[Double] = {
@@ -137,6 +130,36 @@ def init(initFile: String, pvsize: Int = 0): Array[Double] = {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*	
+			val words  = ex.attributes("@words").split(" ")
+			val pots = ex.potentials
+			val names   = pots.map(_.name)
+			val feats   = pots.map(_.features)
+			val scores  = computePotentials(params, feats).map(Math.exp(_))
+
+			val model = SRLModel.construct(names, scores, labels, words.size)
+			println("GRAPH:")
+			println(model.graph.toString())
+			var conv = runBP(model.graph, 5, 1, 0.1)
+			model.decode(words)
+			println
+		}
+	}
+*/
 
 
 /*
@@ -526,5 +549,7 @@ println(count + ".")
 return count
 }
 }
+
+*/
 
 */

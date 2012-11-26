@@ -1,3 +1,4 @@
+/*
 package narad.nlp.parse
 
 import narad.bp.structure._
@@ -51,3 +52,4 @@ object DependencyParser {
 		new DependencyParser(fg.toFactorGraph)
 	}
 }
+*/

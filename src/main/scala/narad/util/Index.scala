@@ -4,8 +4,16 @@ import scala.collection.mutable.{ArrayBuffer, HashMap}
 
 class Index[T] {  
 	var isDirty = false
-	var elems = new ArrayBuffer[T] //null.asInstanceOf[Array[T]]
+	var elems = new ArrayBuffer[T] 
 	var hash = new HashMap[T, Int]
+	
+	def contains(e: T): Boolean = {
+		hash.contains(e)
+	}
+	
+	def elements: Iterable[T] = {
+		elems
+	}
 	
 	def index(e: T): Int = {
 		if (hash.contains(e)) {
@@ -13,17 +21,27 @@ class Index[T] {
 		}
 		else {
 			elems += e
-			hash  += e -> hash.size
-			hash.size-1
+			hash  += e -> (hash.size+1)
+			hash.size
 		}
 	}
 	
-	def get(idx: Int): T = {
-		elems(idx)
+	def indexOf(e: T): Int = {
+		hash.getOrElse(e, -1)
 	}
+	
+	def get(idx: Int): T = {
+		elems(idx-1)
+	}
+	
+	def size = elems.size
 }
 
 
+
+
+
+//null.asInstanceOf[Array[T]]
 
 /*
 //import scala.collection.immutable.HashMap

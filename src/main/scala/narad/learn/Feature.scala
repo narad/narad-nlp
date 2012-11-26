@@ -1,7 +1,6 @@
 package narad.learn
 import scala.collection.mutable.{ArrayBuffer, HashMap}
-import narad.nlp.phonology._
-import narad.projects.otlearn._
+//import narad.nlp.phonology._
 
 class Feature(val label: String, var weight: Double = 1.0) {}
 

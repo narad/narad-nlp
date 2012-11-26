@@ -1,5 +1,7 @@
+/*
 package narad.nlp.tagger
 import narad.nlp.trees._
+import narad.io.reader._
 import scala.collection.mutable.{ArrayBuffer, HashSet}
 
 object TFeaturizer {
@@ -24,7 +26,7 @@ object TFeaturizer {
 		println("@tags\t%s".format(tokens.map(_.pos).mkString(" ")))
 		println("@tagset\t%s".format(tagset.mkString(" ")))
 		for (i <- 0 until tokens.size; j <- 0 until tagset.size) {
-			val feats = lexicalFeatures(tokens(i)).map("%s_%s".format(tagset(j), _)).mkString(" ")
+			val feats = TaggerFeatures.features()//lexicalFeatures(tokens(i)).map("%s_%s".format(tagset(j), _)).mkString(" ")
 			if (tokens(i).pos == tagset(j)) {
 				println("pos(%d,%d)\t+%s".format(i,j,feats))		
 			}
@@ -34,7 +36,8 @@ object TFeaturizer {
 		}
 		if (bigram) {
 			for (i <- 0 until tokens.size-1; j <- 0 until tagset.size; k <- 0 until tagset.size) {
-				val feats = "W1-%s W2-%s W1-2-%s_%s".format(tokens(i).word, tokens(i+1).word, tokens(i).word, tokens(i+1).word).map("%s_%s_%s".format(tagset(j), tagset(k), _)).mkString(" ")
+//				val feats = "W1-%s W2-%s W1-2-%s_%s".format(tokens(i).word, tokens(i+1).word, tokens(i).word, tokens(i+1).word).map("%s_%s_%s".format(tagset(j), tagset(k), _)).mkString(" ")
+				val feats = Features.
 				if (tokens(i).pos == tagset(j) && tokens(i+1).pos == tagset(k)) {
 					println("bpos(%d,%d,%d)\t+%s".format(i,j,k,feats))
 				}
@@ -59,5 +62,6 @@ object TFeaturizer {
 	}
 }
 
+*/
 
 

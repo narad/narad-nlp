@@ -7,6 +7,9 @@ import java.util.Set
 case class Token(word: String, pos: String) {
 	override def toString(): String = "(%s %s)".format(pos, word)	
 	
+}
+
+/*
 		val punctuationPattern = """[,\\.;:?!()]""".r
 		val initialPattern = """"[A-Z]\.""".r
 	//	val singlechar = pattern(ALPHA)
@@ -168,3 +171,9 @@ case class Token(word: String, pos: String) {
 			return str.toLowerCase.replaceAll("[0-9]", "#").replaceAll("[,\\.;:?!()]", "@")
 		}
 }
+
+*/
+
+
+
+

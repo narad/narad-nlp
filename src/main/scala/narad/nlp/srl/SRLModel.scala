@@ -1,11 +1,11 @@
+/*
 package narad.nlp.srl
 import narad.bp.structure._
-import narad.projects.bpdp._
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.{ArrayBuffer, HashSet}
 import scala.util.matching._
 
 
-class SRLModel(var graph: FactorGraph) extends Model {
+class SRLModel(var graph: FactorGraph) extends FactorGraphModel {
 	val predPattern  = """pred\(([0-9]+)\)""".r
 	val argPattern   = """argOf\(([0-9]+),([0-9]+)\)""".r
 	val labelPattern = """labelOf\(([0-9]+),([0-9]+),(.+)\)""".r
@@ -22,63 +22,224 @@ class SRLModel(var graph: FactorGraph) extends Model {
 
 	def decode(words: Array[String], tags: Array[String]) = {
 		val beliefs = graph.potentialBeliefs
-//		val datum = SRLDatum.constructFromBeliefs(beliefs, words, tags)
-//		println(datum)
+		for (b <- beliefs) {
+			println("%s %s".format(b.name, b.value.toString))			
+		}
+		//		val datum = SRLEval.constructFromBeliefs(beliefs, words, tags)
+		//		println(datum)
 		println
 	}
-	
+
 	override def toString = graph.toString
 }
 
 
 
 object SRLModel {
-	val predPattern  = """pred\(([0-9]+)\)""".r
-	val argPattern   = """argOf\(([0-9]+),([0-9]+)\)""".r
-	val labelPattern = """labelOf\(([0-9]+),([0-9]+),(.+)\)""".r
-	
-	def construct(pots: Array[Potential], slen: Int, syntax: Boolean = false): SRLModel = {
-		val fg = new FactorGraphBuilder(pots)
-		System.err.println("SRL Model currently not implement!")
-/*
-		for (pi <- 0 until pots.size) {
-			pots(pi).name match {
-				case predPattern(start) => {
-					val i = start.toInt
-					fg.addVariable("predVar(%d)".format(i), 2)
-					fg.addUnaryFactor2("predVar(%d)".format(i), "predFac(%d)".format(i), Array(pots(pi)))											
-				}
-				case argPattern(start, end) => {
-					val i = start.toInt
-					val j = end.toInt
-					fg.addVariable("argVar(%d,%d)".format(i, j), 2)
-					fg.addUnaryFactor2("argVar(%d,%d)".format(i, j), "argFac(%d,%d)".format(i, j), Array(pots(pi)))																
-				}
-				case labelPattern(start, end, l) => {
-					val i = start.toInt
-					val j = end.toInt
-					fg.addVariable("labelVar(%d,%d,%s)".format(i, j, l), 2)
-					fg.addUnaryFactor2("labelVar(%d,%d,%s)".format(i, j, l), "labelFac(%d,%d,%s)".format(i, j, l), Array(pots(pi)))																
+	val sensePattern  = """sense\(([0-9]+),([0-9]+)\)""".r
+	val argPattern    = """hasArg\(([0-9]+),([0-9]+)\)""".r
+	val labelPattern  = """hasLabel\(([0-9]+),([0-9]+),(.+)\)""".r
+
+	def construct(pots: Array[Potential], slen: Int, maxDist: Int = 1000, syntax: Boolean = false): SRLModel = {
+			val fg = new FactorGraphBuilder(pots)
+			val pidxs = new HashSet[Int]
+			for (i <- 0 until pots.size) {
+				pots(i).name match {
+					case sensePattern(spidx, ssidx) => {
+						val pidx = spidx.toInt
+						val sidx = ssidx.toInt
+						fg.addVariable("senseVar(%d,%d)".format(pidx, sidx), 2)
+						fg.addUnaryFactor("senseVar(%d,%d)".format(pidx, sidx), "senseFac(%d,%d)".format(pidx, sidx), Array(pots(i)))				
+						pidxs += pidx
+					}
+					case argPattern(spidx, saidx) => {
+						val pidx = spidx.toInt
+						val aidx = saidx.toInt
+						fg.addVariable("argVar(%d,%d)".format(pidx, aidx), 2)
+						fg.addUnaryFactor("argVar(%d,%d)".format(pidx, aidx), "argFac(%d,%d)".format(pidx, aidx), Array(pots(i)))				
+					}
+					case labelPattern(spidx, saidx, slidx) => {
+						val pidx = spidx.toInt
+						val aidx = saidx.toInt
+						val lidx = slidx.toInt
+						fg.addVariable("labelVar(%d,%d,%d)".format(pidx, aidx, lidx), 2)
+						fg.addUnaryFactor("labelVar(%d,%d,%d)".format(pidx, aidx, lidx), "labelFac(%d,%d,%d)".format(pidx, aidx, lidx), Array(pots(i)))										
+					}
+					case _=> {
+						System.err.println("Line not match: %s".format(pots(i).name))
+					}
 				}
 			}
+			for (pidx <- pidxs) {
+				fg.addAtMost1Factor(new Regex("senseVar\\(%d,.+\\)".format(pidx)), "senseAtMost(%d)".format(pidx))				
+				for (aidx <- 1 to slen if Math.abs(pidx-aidx) <= maxDist) {
+//					System.err.println("Creating IsAtMost for %d vs %d".format(pidx, aidx))
+					fg.addIsAtMost1Factor(new Regex("argVar\\(%d,%d\\)".format(pidx, aidx)), new Regex("labelVar\\(%d,%d,.+\\)".format(pidx, aidx)), "labelAtMost(%d,%d)".format(pidx, aidx))													
+				}
+			}
+			new SRLModel(fg.toFactorGraph)
 		}
-		for (i <- 0 until slen; j <- 0 until slen) {
-			fg.addIsAtMost1Factor("argVar\\(%d,%d\\)".format(i, j), "labelVar\\(%d,%d,.*\\)".format(i, j), "isAtMost(%d,%d)".format(i, j))			
+		
+//		def construct(pots: Array[Potential], slen: Int, maxDist: Int = 1000, syntax: Boolean = false): SRLModel = {
+//				val fg = new FactorGraphBuilder(pots)
+//				val pidxs = new HashSet[Int]	
+//		}
+}
+
+
+/*
+					case brackPattern(s, e) => {
+						val start = s.toInt
+						val end = e.toInt
+						fg.addVariable("brackvar(%d,%d)".format(start, end), 2)
+						if (start == 0 && end == slen) {
+							fg.addTable1Factor("brackvar(%d,%d)".format(start, end), "brackfac(%d,%d)".format(start,end), Array(pots(i))) 
+							//Array[Potential](new Potential(0.0, "+brack(0,%d)".format(end), true)))				
+						}
+						else {
+							fg.addUnaryFactor("brackvar(%d,%d)".format(start, end), "brackfac(%d,%d)".format(start,end), Array(pots(i)))				
+						}
+					}
+					case brackLabelPattern(label, s, e) => {
+						val start = s.toInt
+						val end = e.toInt
+						fg.addVariable("label%svar(%d,%d)".format(label, start, end), 2)
+						fg.addUnaryFactor("label%svar(%d,%d)".format(label, start, end), "label%sfac(%d,%d)".format(label, start, end), Array(pots(i)))											
+					}
+					case unaryPattern(s, e) => {
+						val start = s.toInt
+						fg.addVariable("unaryvar(%d,%d)".format(start, start+1), 2)
+						fg.addUnaryFactor("unaryvar(%d,%d)".format(start, start+1), "unaryfac(%d,%d)".format(start, start+1), Array(pots(i)))											
+					}
+					case unaryLabelPattern(label, s, e) => {
+						val start = s.toInt
+						fg.addVariable("unaryLabel%svar(%d,%d)".format(label, start, start+1), 2)
+						fg.addUnaryFactor("unaryLabel%svar(%d,%d)".format(label, start, start+1), "unaryLabel%sfac(%d,%d)".format(label, start, start+1), Array(pots(i)))											
+	//					fg.addTable1Factor("unaryvar(%d,%d)".format(start, start+1), "unaryfac(%d,%d)".format(start, start+1), Array[String]("unary(%d,%d)".format(start, start+1)), Array[Double](0,1))				
+	// WAS TABLE1FACTOR IN BPDP
+					}
+					case _=> System.err.println("Pattern not matched on %s".format(pots(i).name))
+				}
+			}
+			fg.addCKYFactor(new Regex("brackvar"), slen=slen)		
+			for (width <- 2 to slen; start <- 0 to (slen - width)) {
+				val end = start + width
+				if (start == 0 && end == slen) {
+					fg.addAtMost1Factor(new Regex("label.+var\\(%d,%d\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))								
+				}
+				else {
+					fg.addIsAtMost1Factor(new Regex("brackvar\\(%d,%d\\)".format(start, end)), new Regex("label.+var\\(%d,%d\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))				
+				}
+			}
+			for (start <- 0 until slen) {
+				val end = start+1
+					fg.addIsAtMost1Factor(new Regex("unaryvar\\(%d,%d\\)".format(start, end)), new Regex("unaryLabel.+var\\(%d,%d\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))
+			}
+			new Parser(fg.toFactorGraph)
 		}
-		for (i <- 0 until slen; j <- 0 until slen) {
-			fg.addYouShallNotPassFactor("predVar\\(%d\\)".format(j), "argVar\\(%d,%d\\)".format(i, j), "YSNP(%d,%d)".format(i, j))			
+
+
+*/
+/*
+	def construct(pots: Array[Potential], slen: Int, syntax: Boolean = false): SRLModel = {
+		val fg = new FactorGraphBuilder(pots)
+		val groups = pots.filter(_.name.contains("sense")).groupBy{pot => 
+			val sensePattern(pidx, sidx) = pot.name
+			sidx
 		}
-		if (syntax) {
-					// Augment the graph with syntactic links
-					for (dep <- 1 to slen; head <- 0 to slen if dep != head) {
-						fg.addVariable("%s(%d,%d)".format("linkvar", head, dep), 2)
-						fg.addUnaryFactor("link\\(%d,%d\\)".format(head, dep), "linkvar(%d,%d)".format(head, dep), "linkfac(%d,%d)".format(head, dep))				
-						// bpdp code kept a matrix for link vars, would have links[dep][head] = the variable
-						//			fg.addNandFactor
-					}			
-				 	fg.addProjectiveTreeFactor("linkvar(", "PTREE", slen)
+		for (g <- groups) {
+			val pidx = g._1
+			fg.addVariable("senseVar(%s,%s)".format(pidx, sidx), 2)
+			fg.addUnaryFactor("senseVar(%s,%s)".format(pidx, sidx), "senseFac(%s,%s)".format(pidx, sidx), Array(pot))																
+			fg.addAtMost1Factor(new Regex("senseVar\\(%s,.*\\)".format(pidx)), "senseAtMost(%s)".format(pidx))			
+			for (aidx <- 1 to slen) {
+				fg.addVariable("argVar(%s,%s)".format(pidx, aidx), 2)
+				fg.addUnaryFactor("argVar(%s,%s)".format(pidx, aidx), "argFac(%s,%s)".format(pidx, sidx), Array(pot))																
+
+			}
 		}
-		*/
 		new SRLModel(fg.toFactorGraph)
 	}
 }
+*/
+
+/*
+fg.addVariable("predVar(%s)".format(pidx), 2)
+for (pot <- g._2) {
+val sensePattern(pidx, sidx) = pot.name
+fg.addVariable("senseVar(%s,%s)".format(pidx, sidx), 2)
+fg.addUnaryFactor("senseVar(%s,%s)".format(pidx, sidx), "senseFac(%s,%s)".format(pidx, sidx), Array(pot))																
+}
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+for (pidx <- 0 until pots.size) {
+val sensePattern = new Regex("sense\\(([0-9]+,%d)\\)".format(pidx))
+pots(pidx).name match {
+case sensePattern(sidx) => {
+println(pots(pidx).name)
+}
+case _=> 
+}
+}
+*/
+/*
+for (pi <- 0 until pots.size) {
+pots(pi).name match {
+case predPattern(start) => {
+val i = start.toInt
+fg.addVariable("predVar(%d)".format(i), 2)
+fg.addUnaryFactor2("predVar(%d)".format(i), "predFac(%d)".format(i), Array(pots(pi)))											
+}
+case argPattern(start, end) => {
+val i = start.toInt
+val j = end.toInt
+fg.addVariable("argVar(%d,%d)".format(i, j), 2)
+fg.addUnaryFactor2("argVar(%d,%d)".format(i, j), "argFac(%d,%d)".format(i, j), Array(pots(pi)))																
+}
+case labelPattern(start, end, l) => {
+val i = start.toInt
+val j = end.toInt
+fg.addVariable("labelVar(%d,%d,%s)".format(i, j, l), 2)
+fg.addUnaryFactor2("labelVar(%d,%d,%s)".format(i, j, l), "labelFac(%d,%d,%s)".format(i, j, l), Array(pots(pi)))																
+}
+}
+}
+for (i <- 0 until slen; j <- 0 until slen) {
+fg.addIsAtMost1Factor("argVar\\(%d,%d\\)".format(i, j), "labelVar\\(%d,%d,.*\\)".format(i, j), "isAtMost(%d,%d)".format(i, j))			
+}
+for (i <- 0 until slen; j <- 0 until slen) {
+fg.addYouShallNotPassFactor("predVar\\(%d\\)".format(j), "argVar\\(%d,%d\\)".format(i, j), "YSNP(%d,%d)".format(i, j))			
+}
+if (syntax) {
+// Augment the graph with syntactic links
+for (dep <- 1 to slen; head <- 0 to slen if dep != head) {
+fg.addVariable("%s(%d,%d)".format("linkvar", head, dep), 2)
+fg.addUnaryFactor("link\\(%d,%d\\)".format(head, dep), "linkvar(%d,%d)".format(head, dep), "linkfac(%d,%d)".format(head, dep))				
+// bpdp code kept a matrix for link vars, would have links[dep][head] = the variable
+//			fg.addNandFactor
+}			
+fg.addProjectiveTreeFactor("linkvar(", "PTREE", slen)
+}
+*/
+
+*/

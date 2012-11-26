@@ -1,61 +1,15 @@
 package narad.nlp.parser.constituent
-import narad.nlp.trees.{Tree, TreebankReader}
+//import narad.nlp.ner.
+import narad.nlp.trees.{Token, Tree}
+import narad.io.reader.TreebankReader
 import narad.util.ArgParser
-
-object ConstituentFeatures {
-
-	def syntaxFeatures(tree: Tree, labels: Array[String], mode: String, prune: Boolean, prunelabels: Array[Array[String]], spanName: String = "brack", labelName: String = "spanLabel") = {
-		val tokens = tree.tokens
-		val length = tokens.length
-		for ( width <- 2 to length; start <- 0 to (length - width)) {
-			val end = start + width
-			val features = ConstituentFeatureFactory.syntaxFeatures(tree, start, end)
-			val labelSet = tree.labels(start, end)
-			println("%s(%d,%d)\t%s%s".format(spanName, start, end, if (labelSet.size > 0) "+" else "", features.mkString(" ")))
-			if (prune) {
-				val wlabels = if (width >= 25) prunelabels(25) else prunelabels(width)
-				for (label <- wlabels) {
-					println("%s%s(%d,%d)\t%s%s".format(labelName, label, start, end, if (labelSet contains label) "+" else "", (Array(label) ++ features.map("%s_%s".format(label, _))).mkString(" ")))					
-				}								
-			}
-			else {
-				for (label <- labels) {
-					println("%s%s(%d,%d)\t%s%s".format(labelName, label, start, end, if (labelSet contains label) "+" else "", (Array(label) ++ features.map("%s_%s".format(label, _))).mkString(" ")))					
-				}								
-			}
-		}
-	}
-
-	def unaryFeatures(tree: Tree, uterms: Array[String], testMode: Boolean=false, spanName: String = "unary", labelName: String = "unaryLabel") = {
-		tree.annotateWithIndices(0)
-		val tokens = tree.tokens
-		val length = tokens.length
-		for (idx <- 0 until length) {
-			val features = ConstituentFeatureFactory.unaryFeatures(tree.removeUnaryChains, idx)
-			if (testMode) {
-				println("unary(%d,%d)\t%s".format(idx, idx+1, features.mkString(" ")))			
-				for (uterm <- uterms) {
-					println("unaryLabel%s(%d,%d)\t%s".format(uterm, idx, idx+1, (Array(uterm) ++ features.map("%s_%s".format(uterm, _))).mkString(" ")))						
-				}
-			}
-			else {				
-				val hasUnary = tree.containsUnarySpan(idx, idx+1)
-				println("%s(%d,%d)\t%s%s".format(spanName, idx, idx+1, if (hasUnary) "+" else "", features.map("U-%s".format(_)).mkString(" ")))
-				var ccount = 0
-				for (uterm <- uterms) {
-					val correctLabel = tree.containsUnarySpan(idx, idx+1, uterm)
-					if (correctLabel) {
-						ccount += 1
-					}
-					println("%s%s(%d,%d)\t%s%s".format(labelName, uterm, idx, idx+1, if (correctLabel) "+" else "", (Array("U-" + uterm) ++ features.map("%s_%s".format("U-" + uterm, _))).mkString(" ")))
-				}
-			}
-		}			
-	}
-}
+import scala.collection.mutable.ArrayBuffer
 
 
 object Featurize{
+	val STARTPOS = "START"
+	val ENDPOS = "END"
+
 
 	def main(args: Array[String]) : Unit = {
 		val options			= new ArgParser(args)
@@ -63,11 +17,10 @@ object Featurize{
 		val ntermFile 	= options.getString("--nonterms")
 		val featureFile	= options.getString("--feature.file")
 		val mode 				= options.getString("--mode", "train")
-		val features 		= options.getString("--features", "CM")
+		val features 		= options.getString("--features", "CCM").toLowerCase
 		val pruneFile		= options.getString("--prune.file")
 		val correctOnly 	= options.getBoolean("--correct.only", false)
 		val prune					= options.getBoolean("--prune", false) || pruneFile != null
-
 
 		val labels = if (ntermFile == null) Array[String]() 
 		else io.Source.fromFile(ntermFile).getLines.toArray.map(_.trim).distinct.filter(_ != "TOP")
@@ -87,16 +40,12 @@ object Featurize{
 				elapsed = (System.nanoTime - stime)/1000000000.0
 				System.err.println("...sentence %d,\t".format(count) + elapsed + " seconds.") 
 			}
-//			val tree = TreebankReader.transformTree(t, options)
 			val tree = t
-	System.err.println("Commented out important code that is being referenced in ConstituentFeatures.scala")
 			val tokens = tree.tokens
 			val length = tokens.size
 			println("@slen\t%d".format(length))
-			println("@bracks\t0 0 1 1")
 			println("@words\t%s".format(tokens.map(_.word).mkString(" ")))
 			println("@tags\t%s".format(tokens.map(_.pos).mkString(" ")))
-			println("@grammar\t%s".format((labels.mkString(" "))))
 			printFeatures(tree.removeTopNode.removeNones, labels, features, mode, prune, vpots, options)
 			println
 			count += 1
@@ -107,20 +56,88 @@ object Featurize{
 	}				
 
 
-	def printFeatures(tree: Tree, ctlabels: Array[String], features: String, mode: String, prune: Boolean, vpots: Array[Array[String]], options: ArgParser) = {
+	def printFeatures(tree: Tree, ctlabels: Array[String], features: String, mode: String, 
+		                prune: Boolean, vpots: Array[Array[String]], options: ArgParser) = {
 		val clabels = if (features contains "brack") Array[String]() else ctlabels
-		val spanName = options.getString("--span.name", "brack")
-		val labelName = options.getString("--label.name", "spanLabel")
-
+		val spanName   = options.getString("--span.name", "brack")
+		val labelName  = options.getString("--label.name", "spanLabel")
+		val uspanName  = options.getString("--unary.span.name", "unary")
+		val ulabelName = options.getString("--unary.label.name", "unaryLabel")
+		val testMode = false
 		if (features contains "syntax") {
-			var ftree = tree.binarize.removeUnaryChains
-			ftree.annotateWithIndices(0)
-			ConstituentFeatures.syntaxFeatures(ftree, clabels, mode, prune, vpots, spanName, labelName)
+			var btree = tree.binarize.removeUnaryChains
+			btree.annotateWithIndices(0)
+			val window = 5
+			val length = btree.tokens.length
+			val tokens = pad(btree.tokens, window, window)
+			for ( width <- 2 to length; start <- 0 to (length - width)) {
+				val end = start + width
+				val si = start + window
+				val ei = end + window-1
+				val spanFeatures = ConstituentFeatureFactory.syntaxSpanFeatures(tokens, si, ei, window=window)
+				val labelFeatures = spanFeatures //++ ConstituentFeatureFactory.syntaxLabelFeatures(tokens, si, ei)
+				val labelSet = btree.labels(start, end)
+				println("%s(%d,%d)\t%s%s".format(spanName, start, end, if (labelSet.size > 0) "+" else "", spanFeatures.mkString(" ")))
+				val labels = if (!prune) {
+					ctlabels
+				}
+				else if (prune && width >= 25) {
+					vpots(25)
+				}
+				else {
+					vpots(width)
+				}
+				for (label <- labels) {
+					val builder = new StringBuilder()
+					for (f <- labelFeatures) builder.append(" " + label + "_" + f)
+					println("%s%s(%d,%d)\t%s%s".format(labelName, label, start, end, if (labelSet contains label) "+" else "", builder.toString.trim))					
+				}								
+			}
 		}
+
 		if (features contains "unary") {
-			var ftree = tree
-			ftree.annotateWithIndices(0)
-			ConstituentFeatures.unaryFeatures(tree, clabels.filter(!_.contains("@"))) 
+			val uterms = clabels.filter(!_.contains("@"))
+			tree.annotateWithIndices(0)
+			val tokens = tree.tokens
+			val length = tokens.length
+			for (idx <- 0 until length) {
+				val features = ConstituentFeatureFactory.unaryFeatures(tree.removeUnaryChains, idx)
+				val hasUnary = tree.containsUnarySpan(idx, idx+1)
+				println("%s(%d,%d)\t%s%s".format(uspanName, idx, idx+1, if (hasUnary) "+" else "", features.map("U-%s".format(_)).mkString(" ")))
+				var ccount = 0
+				for (uterm <- uterms) {
+					val correctLabel = tree.containsUnarySpan(idx, idx+1, uterm)
+					if (correctLabel) {
+						ccount += 1
+					}
+					val builder = new StringBuilder()
+					for (f <- features) {
+						builder.append(" [unary-" + uterm + "]-" + f)
+					}
+					println("%s%s(%d,%d)\t%s%s".format(ulabelName, uterm, idx, idx+1, if (correctLabel) "+" else "", builder.toString.trim))
+				}
+			}		
+		}
+		
+		if (features contains "ner") {
+			
 		}
 	}
+
+def pad(array: Array[Token], spad: Int, epad: Int): Array[Token] = {
+	val buffer = new ArrayBuffer[Token]
+	val end = spad + epad + array.size
+	for (i <- 0 until end){
+		if (i < spad){
+			buffer += Token("[START%d]".format(spad-i), STARTPOS)
+		}
+		else if (i >= array.size + spad){
+			buffer += Token("[END%d]".format(1 + i - (array.size + spad)), ENDPOS)
+		}
+		else{
+			buffer += array(i-spad)	
+		}	
+	}
+	return buffer.toArray
+}
 }

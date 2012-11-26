@@ -1,7 +1,7 @@
 package narad.projects.bpdp
 
 import narad.bp.structure._
-import narad.bp.train._
+//import narad.bp.train._
 import narad.bp.util._
 import scala.util.matching._
 

@@ -1,4 +1,5 @@
 package narad.nlp.trees
+import narad.io.reader._
 import narad.util.ArgParser
 import java.io.FileWriter
 import scala.collection.mutable.{HashMap, HashSet}
@@ -68,14 +69,14 @@ object GrammarReader {
 
 
 		def read(options: ArgParser): Grammar = {
-			val treeFile           = options.getString("--treebank")
-			val shouldPrintGrammar = options.getBoolean("--printGrammar", false)
-			val shouldMLE					 = options.getBoolean("--MLE", false)
+			val treeFile             = options.getString("--treebank")
+			val shouldPrintGrammar   = options.getBoolean("--print.grammar", false)
+			val shouldMLE					   = options.getBoolean("--MLE", false)
 			val shouldPruneSpans		 = options.getBoolean("--prune", false)
 			val pruneFile						 = options.getString("--prune.file", "prune.pots")
 
 			var trees = TreebankReader.read(treeFile, options)
-			printGrammar(trees)
+			printGrammar(trees.toArray)
 			return null.asInstanceOf[Grammar]
 	}
 	

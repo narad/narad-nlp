@@ -52,17 +52,44 @@ object SRLFeatures {
 			return feats.map(_.replaceAll("=", "-")).toArray
 		}
 			
-	def senseFeatures(idx: Int, tokens: Array[SRLToken], mode: Int = 1): Array[String] = {
+		def senseFeatures(idx: Int, tokens: Array[SRLToken], window: Int = 2): Array[String] = {
 			val feats = new ArrayBuffer[String]
 			val token = tokens(idx)
 			val slen = tokens.size
 			val cap = if (capitalized(token.word)) "UC" else "LC"
-			feats += "pred"
-			feats += "ps-word-%s".format(token.word)
-			feats += "ps-pos-%s".format(token.pos)
-			feats += "ps-word%s-pspos-%s".format(token.word, token.pos)
-			feats += "pcap-%s".format(cap)
+			feats += "[sense-bias]"
+			feats += "[sense-word]-%s".format(token.word)
+			feats += "[sense-lemma]-%s".format(token.lemma)
+			feats += "[sense-pos]-%s".format(token.pos)
+			feats += "[sense-word-pos]-%s-%s".format(token.word, token.pos)
+			feats += "[sense-cap]-%s".format(cap)
 
+			for (t <- tokens) {
+				feats += "[sense-unigram]-%s-%s".format(token.lemma, t.word)			
+			}
+
+			feats += "[morph-string]-%s".format(token.morph)
+			for (f <- token.morph.split("\\|")) {
+				feats += "[morph-feat]-%s".format(f)				
+			}
+			
+			for (offset <- idx-window to idx+window if (offset > 0 && offset < slen && offset != idx)) {
+				val otoken = tokens(offset)
+				val ocap = if (capitalized(otoken.word)) "UC" else "LC"
+				feats += "[offset-%d-word]-%s".format(offset, otoken.word)
+				feats += "[offset-%d-tag]-%s".format(offset, otoken.pos)
+				feats += "[offset-%d-word-tag]-%s-%s".format(offset, otoken.word, otoken.pos)
+				feats += "[offset-%d-cap]-%s".format(offset, ocap)
+				feats += "[offset-%d-pos-opos]-%s-%s".format(offset, token.pos, otoken.pos)
+				feats += "[offset-%d-word-opos]-%s-%s".format(offset, token.word, otoken.pos)
+				feats += "[offset-%d-word-oword]-%s-%s".format(offset, token.word, otoken.word)
+				feats += "[offset-%d-pos-opos]-%s-%s".format(offset, cap, ocap)
+			}
+			
+			return feats.map(_.replaceAll("=", "-")).toArray
+		}
+
+/*
 //  Seems to hurt performance
 //			feats += "p-morph-%s".format(token.morph)
 //			for (f <- token.morph.split("\\|")) {
@@ -70,7 +97,7 @@ object SRLFeatures {
 //			}
 
 
-			if (mode == 2) {  // This only seems to hurt performance as well
+//			if (mode == 2) {  // This only seems to hurt performance as well
 				val w = 3
 				val lb = if (idx-w < 0) 0 else idx-w
 				val ub = if (idx+w > slen-1) slen-1 else idx+w
@@ -103,9 +130,9 @@ object SRLFeatures {
 					feats += "%s-a%s".format(token.word, atoken.word)
 					feats += "%s-a%s".format(cap, acap)
 				}
-			}
-			return feats.map(_.replaceAll("=", "-")).toArray
-		}
+//			}
+*/
+
 	
 		
 	def predicateFeatures(idx: Int, tokens: Array[SRLToken], mode: Int = 2): Array[String] = {
