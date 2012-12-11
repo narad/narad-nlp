@@ -120,7 +120,7 @@
 					<scalaVersion>${scala.version}</scalaVersion>
 					<jvmArgs>
 						<jvmArg>-Xms64m</jvmArg>
-						<jvmArg>-Xmx1800m</jvmArg>
+						<jvmArg>-Xmx2400m</jvmArg>
 					</jvmArgs>
 				</configuration>
 			</plugin>
@@ -168,9 +168,6 @@
 			<plugin>
 				<artifactId>maven-assembly-plugin</artifactId>
 				<configuration>
-					<formats>
-						<format>tar.gz</format>
-					</formats>
 					<descriptorRefs>
 						<descriptorRef>project</descriptorRef>
 					</descriptorRefs>
@@ -179,23 +176,8 @@
 					</descriptors>
 				</configuration>
 			</plugin>
-
 		</plugins>
 	</build>
-
-
-	<reporting>
-		<plugins>
-			<plugin>
-				<groupId>org.scala-tools</groupId>
-				<artifactId>maven-scala-plugin</artifactId>
-				<configuration>
-					<scalaVersion>${scala.version}</scalaVersion>
-				</configuration>
-			</plugin>
-		</plugins>
-	</reporting>
-
 </project>
 
 

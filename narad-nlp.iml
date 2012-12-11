@@ -5,7 +5,7 @@
       <configuration>
         <option name="compilerLibraryLevel" value="Project" />
         <option name="compilerLibraryName" value="Maven: org.scala-lang:scala-compiler-bundle:2.9.2" />
-        <option name="maximumHeapSize" value="1800" />
+        <option name="maximumHeapSize" value="2400" />
         <option name="vmOptions" value="-Xms64m" />
       </configuration>
     </facet>

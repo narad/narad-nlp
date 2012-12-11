@@ -1,10 +1,26 @@
-package narad.nlp.parse
-import scala.collection.mutable.ArrayBuffer
-import narad.io.datum.CoNLLDatum
+package narad.nlp.parser.dependency
 
-trait DependencyFeatures {
+import scala.collection.mutable.ArrayBuffer
+import narad.io.conll._
+import java.io.FileWriter
+
+trait DependencyParseFeatures {
 	
 //	def extract(otokens: Array[RToken], ohead: Int, odep: Int): Array[String] = {
+
+  def extractFeatures(inputFile: String, outputFile: String, params: DependencyParserParams) {
+    val out = new FileWriter(outputFile)
+    val reader = new CoNLLReader(inputFile)
+      for (datum <- reader) {
+        val slen = datum.slen
+        out.write("@slen\t%d".format(slen))
+        for (i <- 0 to slen; j <- 0 until slen if i != j) {
+          val correct = if (datum.head(j) == i) "+" else ""
+          val feats = dependencyFeatures(datum, i, j)
+          out.write("un(%d,%d)\t%s%s\n".format(i, j, correct, feats.mkString(" ")))
+        }
+      }
+  }
 
 	case class DependencyToken(word: String, lemma: String, pos: String, cpos: String)
 

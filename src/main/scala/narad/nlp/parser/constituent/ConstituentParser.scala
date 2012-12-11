@@ -1,3 +1,33 @@
+package narad.nlp.parser.constituent
+
+class ConstituentParser {
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 /*
 package narad.nlp.parser.constituent
 import narad.bp.structure._
