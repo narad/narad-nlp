@@ -9,10 +9,10 @@ object BPDPDecoderHelper {
 		val bpdpFile = options.getString("--bpdp.file")
 		val dict = TagDictionary.fromFile(dictFile)
 		val alltags = dict.all.toArray
-		for (line <- io.Source.fromFile(bpdpFile).getLines) {
+		for (line <- io.Source.fromFile(bpdpFile).getLines()) {
 //			println(line)
 			if (line.isEmpty) {
-				println
+				println()
 			}
 			else {
 				val cols = line.split("\t").map(_.trim)

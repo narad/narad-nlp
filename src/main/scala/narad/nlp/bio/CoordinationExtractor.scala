@@ -4,8 +4,10 @@ import util.parsing.combinator.Parsers
 import util.parsing.input.{Position, Reader}
 import collection.mutable.ArrayBuffer
 import narad.util.ArgParser
-import narad.nlp.trees.{Tree => ConstituencyTree}
+import narad.nlp.trees.{ConstituentTree => ConstituencyTree}
 import narad.io.reader.TreebankReader
+
+/*
 
 object BioReader {
 
@@ -20,9 +22,9 @@ object BioReader {
 		try {
 			val iformat = "UTF-8"
 			val src = scala.io.Source.fromFile(filename, iformat)
-			val xml = scala.xml.parsing.ConstructingParser.fromSource(src, false).document
+			val xml = scala.xml.parsing.ConstructingParser.fromSource(src, false).document()
 			val sentences = (xml \\ "_").filter(_.label == "sentence").map(parseSentenceNode(_))
-			src.close
+			src.close()
 			return sentences
 		}
 		catch {
@@ -51,7 +53,7 @@ object BioReader {
 		println(entities.mkString("\n"))
 		println(relations.mkString("\n"))
 		println(deps.mkString("\n"))
-		println
+		println()
 		return BioDatum(tokens, entities, relations) //, ctree, deptree)
 //		val ctree = new
 //		println(ctree)
@@ -103,7 +105,7 @@ case class LabeledDependencyTree(heads: Array[Int], labels: Array[Int])
 
 
 
-
+         */
 
 
 

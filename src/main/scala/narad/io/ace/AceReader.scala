@@ -287,7 +287,7 @@ import edu.stanford.nlp.tagger.maxent.TaggerConfig
 import edu.stanford.nlp.util.XMLUtils
 import java.io._
 import narad.nlp.io.SentenceReader
-import narad.nlp.parse.Tree
+import narad.nlp.parse.ConstituentTree
 import narad.util.{ArgParser, ChunkReader, StanfordParserWrapper}
 import scala.collection.mutable.ArrayBuffer
 
@@ -627,7 +627,7 @@ object AcePreprocessor {
 				val words = lines.map(_.split("\t")(1))
 				val slen = words.size
 				var heads = new Array[String](slen+1)	
-				var tree = null.asInstanceOf[Tree]
+				var tree = null.asInstanceOf[ConstituentTree]
 				var parseFailed = false				
 				if (parser != null) {
 					parser.parses(words.mkString(" ")) match {

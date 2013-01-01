@@ -23,7 +23,7 @@ class TaggerParams(args: Array[String]) extends ArgParser(args) with ModelOption
 	def TRAIN_ITERATIONS = getInt("--train.iterations", 10)
 	def TRAIN_ORDER = getString("--train.order", "NORMAL")
 	def MODEL_OUTPUT_FILE = getString("--model.output.file", "model")
-	def INIT_FILE = getString("--init.file")
+	def INIT_FILE = getString("--init.file", "model.pv")
 	def BATCH_SIZE = getInt("--batch.size", 1)
 	def AVERAGE_LAST = getBoolean("--average.last", false)
 	

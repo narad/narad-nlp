@@ -1,3 +1,118 @@
+package narad.nlp.srl
+import narad.bp.structure._
+import narad.bp.inference._
+import narad.bp.util.PotentialExample
+import scala.collection.mutable.HashSet
+import scala.util.matching.Regex
+import scala.math._
+
+class SRLModel(params: SRLParams) extends FactorGraphModel with SRLFeatures with BeliefPropagation {
+  val SENSE_PATTERN  = """sense\(([0-9]+),([0-9]+)\)""".r
+  val ARG_PATTERN    = """hasArg\(([0-9]+),([0-9]+)\)""".r
+  val LABEL_PATTERN  = """hasLabel\(([0-9]+),([0-9]+),(.+)\)""".r
+  val SYNTAX_PATTERN = """un\(([0-9]+),([0-9]+)\)""".r
+  val CONNECT_PATTERN = """sslink\(([0-9]+),([0-9]+)\)""".r
+
+  def constructFromExample(ex: PotentialExample, pv: Array[Double]): ModelInstance = {
+    val slen = ex.attributes.getOrElse("slen", "-1").toInt
+    val maxDist = slen+1
+    val pots = ex.exponentiated(pv)
+/*
+    for (i <- 0 until pots.size) {
+      if (pots(i).name.startsWith("un")) {
+        if (pots(i).isCorrect) {
+          pots(i) = new Potential(scala.math.exp(5), pots(i).name, true)
+        }
+        else {
+          pots(i) = new Potential(scala.math.exp(5), pots(i).name, false)
+        }
+      }
+    }
+*/
+    val fg = new FactorGraphBuilder(pots)
+    val pidxs = new HashSet[Int]
+    for (i <- 0 until pots.size) {
+      pots(i).name match {
+        case SENSE_PATTERN(spidx, ssidx) => {
+          val pidx = spidx.toInt
+          val sidx = ssidx.toInt
+          fg.addVariable("senseVar(%d,%d)".format(pidx, sidx), 2)
+          fg.addUnaryFactor("senseVar(%d,%d)".format(pidx, sidx), "senseFac(%d,%d)".format(pidx, sidx), pots(i))
+          pidxs += pidx
+        }
+        case ARG_PATTERN(spidx, saidx) => {
+          val pidx = spidx.toInt
+          val aidx = saidx.toInt
+          System.err.println("Adding arg %d,%d".format(pidx, aidx))
+          fg.addVariable("argVar(%d,%d)".format(pidx, aidx), 2)
+          fg.addUnaryFactor("argVar(%d,%d)".format(pidx, aidx), "argFac(%d,%d)".format(pidx, aidx), pots(i))
+        }
+        case LABEL_PATTERN(spidx, saidx, slidx) => {
+          val pidx = spidx.toInt
+          val aidx = saidx.toInt
+          val lidx = slidx.toInt
+          fg.addVariable("labelVar(%d,%d,%d)".format(pidx, aidx, lidx), 2)
+          fg.addUnaryFactor("labelVar(%d,%d,%d)".format(pidx, aidx, lidx), "labelFac(%d,%d,%d)".format(pidx, aidx, lidx), pots(i))
+        }
+        case SYNTAX_PATTERN(shidx, skidx) => {
+          val hidx = shidx.toInt
+          val kidx = skidx.toInt
+          System.err.println("Adding syntax %d,%d".format(hidx, kidx))
+          fg.addVariable("linkvar(%d,%d)".format(hidx, kidx), 2)
+          fg.addUnaryFactor("linkvar(%d,%d)".format(hidx, kidx), "linkfac(%d,%d)".format(hidx, kidx), pots(i))
+        }
+        case CONNECT_PATTERN(shidx, skidx) => {
+          val hidx = shidx.toInt
+          val kidx = skidx.toInt
+          fg.addNandFactor(new Regex("argVar\\(%d,%d\\)".format(hidx, kidx)), new Regex("linkvar\\(%d,%d\\)".format(hidx, kidx)), "sslink(%d,%d)".format(hidx, kidx), pots(i))
+        }
+        case _=> {
+          System.err.println("Line not match: %s".format(pots(i).name))
+        }
+      }
+    }
+    for (pidx <- pidxs) {
+      fg.addAtMost1Factor(new Regex("senseVar\\(%d,.+\\)".format(pidx)), "senseAtMost(%d)".format(pidx))
+      for (aidx <- 1 to slen if abs(pidx-aidx) <= maxDist) {
+        fg.addIsAtMost1Factor(new Regex("argVar\\(%d,%d\\)".format(pidx, aidx)), new Regex("labelVar\\(%d,%d,.+\\)".format(pidx, aidx)), "labelAtMost(%d,%d)".format(pidx, aidx))
+      }
+    }
+    new SRLModelInstance(fg.toFactorGraph, ex)
+  }
+
+  def label(aidx: Int, pidx: Int, beliefs: Array[Potential]): String = {
+    val lbeliefs = beliefs.filter(_.name.matches("labelOf\\(%s,%s,(.+)\\)".format(aidx, pidx)))
+    var maxv = lbeliefs.map(_.value).max
+    val labels = lbeliefs.filter(_.value == maxv).map { b =>
+      val LABEL_PATTERN(ai, pi, l) = b.name; l
+    }
+    assert(labels.size > 0, "No labels found in SRL Decoding for %d, %d.".format(aidx, pidx))
+    labels.first
+  }
+
+  def decode(instance: ModelInstance) = {
+
+  }
+
+  def options = params
+
+}
+
+class SRLModelInstance(fg: FactorGraph, ex: PotentialExample) extends ModelInstance(fg, ex)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 /*
 package narad.nlp.srl
 import narad.bp.structure._
@@ -6,7 +121,7 @@ import scala.util.matching._
 
 
 class SRLModel(var graph: FactorGraph) extends FactorGraphModel {
-	val predPattern  = """pred\(([0-9]+)\)""".r
+	val predPattern  = pred\(([0-9]+)\)""".r
 	val argPattern   = """argOf\(([0-9]+),([0-9]+)\)""".r
 	val labelPattern = """labelOf\(([0-9]+),([0-9]+),(.+)\)""".r
 

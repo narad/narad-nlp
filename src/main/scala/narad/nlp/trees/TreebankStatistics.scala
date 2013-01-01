@@ -3,7 +3,7 @@ package narad.nlp.trees
 object TreebankStatistics {
 	
 	
-	def printStatistics(trees: Array[Tree]) {
+	def printStatistics(trees: Array[ConstituentTree]) {
 		var unCount = 0
 		var unTop = 0
 		var unLeaf = 0
@@ -12,7 +12,7 @@ object TreebankStatistics {
 			all += 1
 			if (subtree.isUnary) {
 				unCount += 1
-				println("%s -> %s".format(subtree.label, subtree.children.mkString(",")))
+				println("%s -> %s".format(subtree.label(), subtree.children.mkString(",")))
 			}
 			if (subtree.isUnary && subtree.isRoot)
 			unTop  += 1

@@ -58,7 +58,7 @@ class Lattice[T](var lattice: Array[Array[T]]) {
 			}
 			sb.append("\n")
 		}
-		return sb.toString
+		return sb.toString()
 	}
 }
 

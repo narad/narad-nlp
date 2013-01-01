@@ -1,3 +1,83 @@
+package narad.nlp.srl
+import narad.bp.structure._
+import narad.bp.util.index.ArrayIndex
+import narad.bp.optimize._
+import narad.bp.util._
+import java.io.File
+import scala.collection.mutable.HashMap
+
+
+
+class BaselineSRL(params: SRLParams) extends SRLModel(params) {}
+class JointSRL(params: SRLParams) extends SRLModel(params) {}
+class HiddenSyntaxSRL(params: SRLParams) extends SRLModel(params) {}
+
+
+object SRL extends SRLFeatures {
+
+  var index = new ArrayIndex[String]()
+  def main(args: Array[String]) {
+    val params = new SRLParams(args)
+    run(params)
+  }
+
+  def run(params: SRLParams) {
+    val srl = params.ORDER match {
+      case "JOINT" => new JointSRL(params)
+      case "HIDDEN" => new HiddenSyntaxSRL(params)
+      case _ => new BaselineSRL(params)
+    }
+    if (params.getBoolean("--extract.features")) {
+      val roles = io.Source.fromFile(params.getString("--arg.file", "srl.args")).getLines.toArray
+      val senseFile = params.getString("--sense.file", "srl.senses")
+      val dict = new HashMap[String, Array[String]]
+      for (line <- io.Source.fromFile(params.getString("--sense.file", "srl.senses")).getLines()) {
+        val cols = line.split("\t")
+        dict(cols(0)) = cols(1).split(" ")
+      }
+      srl.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, roles, dict, params)
+      srl.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, roles, dict, params)
+    }
+    if (params.getBoolean("--integerize")) {
+
+    }
+    else if (params.getBoolean("--train")) {
+      val optimizer = new Optimizer(srl) with L1Regularizer
+      val data = PotentialReader.read(params.TRAIN_FIDX_FILE).toArray
+      optimizer.train(data, params)
+    }
+    else if (params.getBoolean("--test")) {
+      val optimizer = new Optimizer(srl)
+      val data = PotentialReader.read(params.TEST_FIDX_FILE).toArray
+      optimizer.test(data, params)
+    }
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 /*
 
 package narad.nlp.srl

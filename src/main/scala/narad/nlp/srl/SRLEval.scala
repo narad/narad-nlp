@@ -18,13 +18,13 @@ object SRLEval {
 		val outputFile = options.getString("--output.file", "srl.out")
 		val suffixFile = options.getString("--suffix.file", "srl.suffixes")
 		val threshold = options.getDouble("--decoding.threshold", 0.5)
-		val suffixes = io.Source.fromFile(suffixFile).getLines.toArray
+		val suffixes = io.Source.fromFile(suffixFile).getLines().toArray
 		val maxsuffix = suffixes(0)
 		val maxmode = options.getString("--max.mode", "APPEND") // otherwise "SAME"
 
 		if (bpdp != null) {
 			val senseDict = new HashMap[String, Array[String]]
-			for (line <- io.Source.fromFile(dict).getLines) {
+			for (line <- io.Source.fromFile(dict).getLines()) {
 //			for (line <- io.Source.fromFile(new File(dict), iformat).getLines) {
 				val cols = line.split("\t"); senseDict(cols(0)) = cols(1).split(" ")
 			}
@@ -32,11 +32,11 @@ object SRLEval {
 			var i = 1
 			for (datum <- convertBPDPtoScala(bpdp, senseDict, iformat, maxmode=maxmode, maxsense=maxsuffix, threshold=threshold)) {
 				out.println(datum)
-				out.println
+				out.println()
 				if (i % 10 == 0) System.err.println("Processing datum %d...".format(i))
 				i += 1
 			}
-			out.close
+			out.close()
 		}
 		else {
 			val gold = options.getString("--gold.file")
@@ -107,7 +107,7 @@ object SRLEval {
 			val potPattern  = """(.*) (.+)""".r
 			val pots = new ArrayBuffer[Potential]
 			val attributes = new HashMap[String, String]
-			val lines = io.Source.fromFile(filename).getLines
+			val lines = io.Source.fromFile(filename).getLines()
 //			val lines = io.Source.fromFile(new File(filename), iformat).getLines
 			for (line <- lines) {
 		//			println(line)
@@ -133,8 +133,8 @@ object SRLEval {
 								if (words.size > 0) pots += new Potential(1.0, "pred(%s)".format(p), false)														
 							}
 							data += constructFromBeliefs(pots.toArray, words, tags, lemmas, roles, dict, maxsense=maxsense, maxmode=maxmode, threshold=threshold)
-							pots.clear
-							attributes.clear
+							pots.clear()
+							attributes.clear()
 						}
 					}
 					case _ =>

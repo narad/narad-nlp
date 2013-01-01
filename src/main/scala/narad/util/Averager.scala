@@ -12,7 +12,7 @@ object Averager {
 		for (i <- 1 to range) {
 			val file = new File(input + "." + i)
 			if (file.exists) {
-				val pv = io.Source.fromFile(file).getLines.map(_.toDouble).toArray
+				val pv = io.Source.fromFile(file).getLines().map(_.toDouble).toArray
 				if (pv.size > maxpv) maxpv = pv.size
 				params(i-1) = pv
 			}

@@ -51,7 +51,7 @@ class TagDictionary extends HashMap[String, HashMap[String, Int]]{
 		for (word <- words.toList.sortBy(_.toString)) {
 			out.write(word + "\t" + tags(word).mkString("\t") + "\n")
 		}
-		out.close
+		out.close()
 	}
 	
 	def words = keys
@@ -78,7 +78,7 @@ object TagDictionary {
       }
     }
 
-		for (line <- io.Source.fromFile(filename).getLines) {
+		for (line <- io.Source.fromFile(filename).getLines()) {
 			val cols = line.split("\t")
 			if (cols.size > 3 && mode == "COARSE") {
 				val word = cols(1)
@@ -99,7 +99,7 @@ object TagDictionary {
 
 	def fromFile(filename: String): TagDictionary = {
 		val dictionary = new TagDictionary
-		for (line <- io.Source.fromFile(filename).getLines) {
+		for (line <- io.Source.fromFile(filename).getLines()) {
 			val cols = line.split("\t")
 			for (i <- 1 until cols.size) {
 				dictionary.add(cols(0), cols(i))

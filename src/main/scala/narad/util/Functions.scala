@@ -43,7 +43,7 @@ object Functions {
 		while (buffer.size < len) {
 			buffer += ' '
 		}
-		buffer.toString
+		buffer.toString()
 	}
 	
 }

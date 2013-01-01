@@ -5,15 +5,15 @@ import edu.stanford.nlp.ling.TaggedWord;
 import edu.stanford.nlp.tagger.maxent.MaxentTagger;
 import edu.stanford.nlp.tagger.maxent.TaggerConfig;
 import edu.stanford.nlp.util.XMLUtils;
-import narad.nlp.trees.Tree
-import narad.io.reader.TreeReader
+import narad.nlp.trees.ConstituentTree
+import narad.io.reader.TreebankReader
 
 class StanfordTaggerWrapper(filename: String) {
 	val tagger = new MaxentTagger(filename)
 	
-	def replaceTags(trees: Array[Tree]) = {
+	def replaceTags(trees: Array[ConstituentTree]) = {
 		for (tree <- trees) {
-			val sentence = tree.tokens.map(_.word).mkString(" ")
+			val sentence = tree.tokens().map(_.word).mkString(" ")
 			val tagged = tagger.tagTokenizedString(sentence)
 			val tags = tagged.split(" ").map(_.split("_")(1))
 			tree.annotateWithIndices(0)
@@ -28,7 +28,7 @@ object StanfordTaggerWrapper {
 		val options = new ArgParser(args)
 		val treebank = options.getString("--treebank")
 		val taggerFile = options.getString("--tagger.file")
-		val trees = TreeReader.read(treebank)
+		val trees = TreebankReader.read(treebank, options).toArray
 		val tagger = new StanfordTaggerWrapper(taggerFile)
 		tagger.replaceTags(trees)
 		for (t <- trees) println(t)

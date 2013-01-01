@@ -32,19 +32,19 @@ trait BigramTaggerFeatures extends TaggerFeatures {
 					val builder = new StringBuilder()
 					for (f <- feats) builder.append(" " + tag + "_" + f)
           val isCorrect1 = tag == correct(datum, widx+1, params.MODE) //datum.postag(widx+1) == tag
-          out.write("ulabel(%d,%s)\t%s%s\n".format(widx+1, tag, if (isCorrect1) "+" else "", builder.toString.trim))
-					rout.write("ulabel(%d,%d)\t%s%s\n".format(widx+1, tidx, if (isCorrect1) "+" else "", builder.toString.trim))
+          out.write("ulabel(%d,%s)\t%s%s\n".format(widx+1, tag, if (isCorrect1) "+" else "", builder.toString().trim))
+					rout.write("ulabel(%d,%d)\t%s%s\n".format(widx+1, tidx, if (isCorrect1) "+" else "", builder.toString().trim))
 					if (widx > 0) {
 						val prevword = datum.word(widx).toLowerCase
            //println("word = " + word + "; prevword = " + prevword)
 						val bigramfeats = bigramFeatures(datum, widx, widx+1, useMorph=false, useSyntax=false)
 						val tags = if (dict.contains(prevword)) dict.tags(prevword).toArray else alltags
 						tags.zipWithIndex.foreach { case(btag, btidx) => 
-							builder.clear
+							builder.clear()
 							for (f <- bigramfeats) builder.append(" " + btag + "_" + tag + "_" + f)
 							val isCorrect2 = correct(datum, widx+1, params.MODE) == tag && correct(datum, widx, params.MODE) == btag //datum.postag(widx+1) == tag && datum.postag(widx) == btag
-							out.write("blabel(%d,%d,%s,%s)\t%s%s\n".format(widx, widx+1, btag, tag,  if (isCorrect2) "+" else "", builder.toString.trim))
-							rout.write("blabel(%d,%d,%d,%d)\t%s%s\n".format(widx, widx+1, btidx, tidx,  if (isCorrect2) "+" else "", builder.toString.trim))
+							out.write("blabel(%d,%d,%s,%s)\t%s%s\n".format(widx, widx+1, btag, tag,  if (isCorrect2) "+" else "", builder.toString().trim))
+							rout.write("blabel(%d,%d,%d,%d)\t%s%s\n".format(widx, widx+1, btidx, tidx,  if (isCorrect2) "+" else "", builder.toString().trim))
 						}
 					}	
 				}
@@ -52,8 +52,8 @@ trait BigramTaggerFeatures extends TaggerFeatures {
 			out.write("\n")
 			rout.write("\n")
 		}
-		out.close		
-		rout.close
+		out.close()
+		rout.close()
 	}
 }
 

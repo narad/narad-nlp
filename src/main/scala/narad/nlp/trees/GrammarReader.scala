@@ -11,44 +11,44 @@ object GrammarReader {
 			read(options)
 		}
 		
-		def printGrammar(trees: Array[Tree]) = {
+		def printGrammar(trees: Array[ConstituentTree]) = {
 			val goldGrammar = new HashSet[String]
 			val binarizedGrammar = new HashSet[String]
 			for(tree <- trees) {
 				goldGrammar ++= tree.extractRules
-				binarizedGrammar ++= tree.binarize.extractRules
+				binarizedGrammar ++= tree.binarize().extractRules
 			}
 			val f1 = new FileWriter("nonterms.gold")
 			f1.write(goldGrammar.map(rule => rule.substring(0, rule.indexOf("=>")-1)).toList.sort((a,b) => a < b).mkString("\n")) 
-			f1.close
+			f1.close()
 			val f2 = new FileWriter("nonterms.binarized")
 			f2.write(binarizedGrammar.map(rule => rule.substring(0, rule.indexOf("=>")-1)).toList.sort((a,b) => a < b).mkString("\n")) 
-			f2.close
+			f2.close()
 			val f3 = new FileWriter("grammar.gold")  
 			f3.write(goldGrammar.toList.sort((a,b) => a < b).mkString("\n"))
-			f3.close
+			f3.close()
 			val f4 = new FileWriter("grammar.binarized") 
 			f4.write(binarizedGrammar.toList.sort((a,b) => a < b).mkString("\n"))
-			f4.close
+			f4.close()
 		}
 		
 
-		def extractWeightedGrammar(trees: Array[Tree]) = {
+		def extractWeightedGrammar(trees: Array[ConstituentTree]) = {
 			val grammarCounts = new HashMap[String, Int]
 			val parentCounts  = new HashMap[String, Int]
 			for (tree <- trees; t <- tree if !t.isPreterminal) {
-				val rule = Rule(t.label, t.children.map(_.label)).toString
+				val rule = Rule(t.label(), t.children.map(_.label())).toString
 				if (grammarCounts.contains(rule)) {
 					grammarCounts(rule) += 1
 				}
 				else {
 					grammarCounts(rule) = 1
 				}
-				if (parentCounts.contains(t.label)) {
-					parentCounts(t.label) += 1
+				if (parentCounts.contains(t.label())) {
+					parentCounts(t.label()) += 1
 				}			
 				else {
-					parentCounts(t.label) = 1
+					parentCounts(t.label()) = 1
 				}
 			}
 
@@ -64,7 +64,7 @@ object GrammarReader {
 			for (i <- 0 until rules.size) {
 				out.write("\"%s\" %f".format(rules(i), rprobs(i)) + "\n")
 			}
-			out.close
+			out.close()
 		}
 
 

@@ -1,11 +1,38 @@
 package narad.nlp.tagger
 
-import collection.mutable.ArrayBuffer
+import collection.mutable.{HashMap, ArrayBuffer, Map}
 import narad.io.conll.CoNLLDatum
 import scala.util.matching.Regex
+import narad.bp.util.{Feature, PotentialExample}
+import narad.bp.util.index._
+import narad.bp.structure.Potential
+
 
 trait TaggerFeatures {
   val NUMBER_PATTERN = new Regex(".*[0-9]+.*")
+
+  def getFeatures(words: Array[String], tags: Array[String], dict: TagDictionary, hash: Index[String]): PotentialExample = {
+    val map  = Map[String, String]()
+    val pots = new ArrayBuffer[Potential]
+    val featmap = new HashMap[String, Array[Feature]]
+    val slen = words.size
+    val alltags = dict.all.toArray
+    map("slen") = slen.toString
+    map("words") = words.mkString(" ")
+    map("bigram") = "false"
+    for (i <- 1 to slen) {
+      val word = words(i)
+      val feats = unigramLexicalFeatures(words, i)
+      val dtags = if (dict.contains(word)) dict.tags(word).toArray else alltags
+      dtags.zipWithIndex.foreach { case(tag, tidx) =>
+        val name = "ulabel(%d,%s)".format(i, tag)
+        val correct = tags.size > 0 && tag == tags(i)
+        pots += new Potential(0.0, name, correct)
+        featmap(name) = feats.view.map("%s_%s".format(tag, _)).map(s => new Feature(hash.index(s), 1.0, 0)).toArray
+      }
+    }
+    return new PotentialExample(map, pots.toArray, featmap)
+  }
 
   def extractFeatures(trainFile: String, trainFeatureFile: String, dict: TagDictionary, params: TaggerParams) = {}
 
@@ -103,6 +130,71 @@ trait TaggerFeatures {
       case "CASE+GENDER+NUMBER" => datum.mcase(i) + "|" + datum.mgender(i) + "|" + datum.mnumber(i)
       case _ => ""
     }
+  }
+
+
+
+
+
+
+
+
+
+
+
+
+  def bigramLexicalFeatures(words: Array[String], fidx: Int, tidx: Int): Array[String] = {
+    val feats = new ArrayBuffer[String]
+    val ffeats = unigramLexicalFeatures(words, fidx, offset=0)
+    val tfeats = unigramLexicalFeatures(words, tidx, offset=1)
+    for (ffeat <- ffeats; tfeat <- tfeats) {
+      feats += ffeat + "_" + tfeat
+    }
+    return feats.toArray
+  }
+
+  def unigramLexicalFeatures(words: Array[String], i: Int, offset: Int = 0): Array[String] = {
+    val feats = new ArrayBuffer[String]
+    val slen = words.size
+    val word = words(i)
+
+    feats += "[bias]"
+    feats += "[form-%d]-%s".format(offset,words(i).toLowerCase)
+
+    val advancedFeats = true
+    if (advancedFeats) {
+      // Context Features
+      for (p <- 1 to 3) {
+        if (i-p >= 0) {
+          feats += "[prev-%d-%s]".format(p, words(i)(i-p))
+          feats += "[prev-concat-%d-%s]".format(p, words.slice(i-p, p).mkString("-"))
+        }
+        else {
+          feats += "[prev-%d-START]".format(p)
+        }
+        if (i+p <= slen) {
+          feats += "[post-%d-%s]".format(p, words(i+p))
+          feats += "[post-concat-%d-%s]".format(p, words.slice(p, p+i).mkString("-"))
+        }
+        else {
+          feats += "[post-%d-END]".format(p)
+        }
+      }
+
+      // Substring pseudo-morph features
+      for (b <- 1 to 4 if word.size >= b) {
+        feats += "prefix-%d-%s".format(b, word.substring(0, b))
+        feats += "suffix-%d-%s".format(b, word.substring(word.size-b))
+      }
+
+      // Contains Number
+      feats += "contains-number-%s".format(NUMBER_PATTERN.pattern.matcher(word).matches.toString)
+      // Contains Uppercase Character
+      feats += "contains-cap-%s".format(word == word.toUpperCase)
+      // Contain Hyphen
+      feats += "contains-hyphen-%s".format(word.contains("-").toString)
+    }
+    return feats.toArray
   }
 }
 

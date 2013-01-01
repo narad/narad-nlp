@@ -8,7 +8,7 @@ object GeniaReader {
 	}
 	
 	def read(filename: String) = {
-		val xml = ConstructingParser.fromSource(scala.io.Source.fromFile(filename), false).document
+		val xml = ConstructingParser.fromSource(scala.io.Source.fromFile(filename), false).document()
 		val setnences = xml \\ "_" foreach { node =>
 			println(node)
 		}

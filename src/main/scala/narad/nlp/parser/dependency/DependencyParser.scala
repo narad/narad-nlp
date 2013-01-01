@@ -61,7 +61,7 @@ class ProjectiveDependencyParser(params: DependencyParserParams) extends FactorG
 
   def decode(instance: ModelInstance) = {
     val beliefs = instance.marginals
-    println
+    println()
   }
 
   def options = params

@@ -7,7 +7,7 @@ import edu.stanford.nlp.parser.lexparser.{ChineseTreebankParserParams, Options}
 import edu.stanford.nlp.util.XMLUtils
 import java.io._
 import narad.io.datum._
-import narad.nlp.trees.Tree
+import narad.nlp.trees.ConstituentTree
 import narad.util.{ArgParser, StanfordParserWrapper}
 import scala.collection.mutable.ArrayBuffer
 
@@ -329,7 +329,7 @@ object AcePreprocessor {
 				val tags = lines.map(_.split("\t")(2))
 				val slen = words.size
 				var heads = new Array[String](slen+1)	
-				var tree = null.asInstanceOf[Tree]
+				var tree = null.asInstanceOf[ConstituentTree]
 				var parseFailed = false				
 				if (parser != null) {
 					parser.parses(words.mkString(" ")) match {
@@ -390,7 +390,7 @@ object AcePreprocessor {
 				var tags = lines.map(_.split("\t")(2))
 				val slen = words.size
 				var heads = new Array[String](slen+1)	
-				var tree = null.asInstanceOf[Tree]
+				var tree = null.asInstanceOf[ConstituentTree]
 				var parseFailed = false				
 				if (parser != null) {
 //					val sent = words.mkString(" ")

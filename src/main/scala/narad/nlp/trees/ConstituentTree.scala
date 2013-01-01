@@ -2,9 +2,20 @@ package narad.nlp.trees
 
 //import narad.nlp.ner._
 import scala.collection.mutable.{ArrayBuffer, HashMap, HashSet}
+import narad.nlp.ling.TaggedToken
+import narad.structure.tree.Tree
 
 
-case class Tree(annotation: Annotation, children: Array[Tree]) extends Iterator[Tree]{
+case class ConstituentNode(label: String) {}
+
+case class PreterminalNode(label: String, word: String) {}
+
+trait TreeAnnotation {
+
+  def label
+}
+
+case class ConstituentTree(annotation: Annotation, children: Array[ConstituentTree]) extends Iterator[ConstituentTree]{ //extends Tree[Constituent](children)
 	
 
 	def label(): String = annotation("label")
@@ -12,24 +23,24 @@ case class Tree(annotation: Annotation, children: Array[Tree]) extends Iterator[
 	def start(): Int = annotation("start").toInt
 	def end(): Int = annotation("end").toInt
 	def width(): Int = end - start
-	def isBinarized(): Boolean = label().contains("@")
+	def isBinarized: Boolean = label().contains("@")
 	def isUnary: Boolean = isUnaryRewrite
 	def isRoot: Boolean = label == "TOP"
-	def toSpan: Span = Span(start, end, label, isUnary)
+	def toSpan: Span = Span(start(), end(), label(), isUnary)
 	
-	def slen = tokens.size
+	def slen = tokens().size
 
   def getSpans: Iterator[Span] = {
-		return (for (t <- this if !t.isLeaf) yield Span(t.start, t.end, t.label, t.isUnary))
+		return (for (t <- this if !t.isLeaf) yield Span(t.start(), t.end(), t.label(), t.isUnary))
 	}
 
 	def removeTop = {
-		assert(children.size == 1, "Error: cannot remove top tree node because it has more than one child: \n%s".format(toString))
+		assert(children.size == 1, "Error: cannot remove top tree node because it has more than one child: \n%s".format(toString()))
 		children(0)
 	}
 	
 	def labels(start: Int, end: Int): HashSet[String] = {
-		if (!indexed) index
+		if (!indexed) index()
 		val sets = new HashSet[String]
 		spans(start)(end).map(_.label).foreach(sets += _)
 		sets
@@ -39,20 +50,20 @@ case class Tree(annotation: Annotation, children: Array[Tree]) extends Iterator[
 	var spans = null.asInstanceOf[Array[Array[ArrayBuffer[Span]]]]
 	var indexed = false
   def index() = {
-		var l = tokens.size+1+1
+		var l = tokens().size+1+1
 		spans = Array.fill(l,l)(new ArrayBuffer[Span])
 		for (t <- this) {
-			spans(t.start)(t.end) += Span(t.start, t.end, t.label, t.isUnary)
+			spans(t.start())(t.end()) += Span(t.start(), t.end(), t.label(), t.isUnary)
 		}
 		len = l
 		indexed = true 
 	}
 
-	def isLeaf(): Boolean = {
+	def isLeaf: Boolean = {
 		return children.size == 0
 	}
 	
-	def isPreterminal(): Boolean = {
+	def isPreterminal: Boolean = {
 		return children.size == 0
 	}
 
@@ -99,6 +110,22 @@ case class Tree(annotation: Annotation, children: Array[Tree]) extends Iterator[
 		tokens.toArray
 	}
 
+  def taggedTokens(): Array[TaggedToken] = {
+    val tokens = new ArrayBuffer[TaggedToken]
+    if (isLeaf) {
+      if (annotation.contains("word")){
+        tokens += new TaggedToken(word(), label())
+      }
+      else{
+        tokens += new TaggedToken("$WORD$", label())
+      }
+    }
+    else {
+      for (child <- children) { tokens ++= child.taggedTokens }
+    }
+    tokens.toArray
+  }
+
 
 	def annotateWithIndices(idx: Int = 0): Int = {
 		if (isLeaf) {
@@ -117,7 +144,7 @@ case class Tree(annotation: Annotation, children: Array[Tree]) extends Iterator[
 		}
 	}
 	
-	def setYield(words: Array[String], tags: Array[String]): Unit = {
+	def setYield(words: Array[String], tags: Array[String]) {
 		if (isLeaf) {
 			val idx = annotation("start").toInt
 //			println(words.size + " / " + tags.size + " vs. " + idx)
@@ -129,7 +156,7 @@ case class Tree(annotation: Annotation, children: Array[Tree]) extends Iterator[
 		}	
 	}
 
-	def replaceTags(tags: Array[String]): Unit = {
+	def replaceTags(tags: Array[String]) {
 		if (isLeaf) {
 			val idx = annotation("start").toInt
 			annotation += "label" -> tags(idx)
@@ -139,20 +166,20 @@ case class Tree(annotation: Annotation, children: Array[Tree]) extends Iterator[
 		}
 	}
 
-	def binarize(): Tree = {
+	def binarize(): ConstituentTree = {
 		if (children.size > 2) {
 			val grandchildren = children.slice(1, children.size)
 			var binLabel = if (isBinarized) label() else "@%s".format(label())
 			var ann = new Annotation
 			ann += "label" -> binLabel
-			return new Tree(annotation, Array[Tree](children(0).binarize, new Tree(ann, grandchildren).binarize))
+			return new ConstituentTree(annotation, Array[ConstituentTree](children(0).binarize(), new ConstituentTree(ann, grandchildren).binarize()))
 		}
 		else{
-			return new Tree(annotation, children.map(_.binarize))
+			return new ConstituentTree(annotation, children.map(_.binarize()))
 		}
 	}
 	
-	def removeTopNode(): Tree = {
+	def removeTopNode(): ConstituentTree = {
 		if (label == "TOP") {
 			assert(children.size == 1, "TOP node has more than one child, when it should be a unary wrapper.")
 			return children(0)
@@ -162,24 +189,24 @@ case class Tree(annotation: Annotation, children: Array[Tree]) extends Iterator[
 		}
 	}
 
-	def removeUnaryChains(): Tree = {
+	def removeUnaryChains(): ConstituentTree = {
 //		System.err.println("Unary removal...")
 //		System.out.println("%s(%d,%d)".format(label, start, end))
 //		if (children.size == 1 && children(0).children.size ==1 && children(0).children(0.isLeaf)	
-			return new Tree(annotation,
+			return new ConstituentTree(annotation,
 			if (children.size == 1) {
 //				unaryHelper().map(_.removeUnaryChains)
 				val uh = unaryHelper()
 //				println("-- " + uh.label)
-				unaryHelper.map(_.removeUnaryChains)
+				unaryHelper().map(_.removeUnaryChains())
 			}
 			else {
-				children.map(_.removeUnaryChains)
+				children.map(_.removeUnaryChains())
 			})
 	}
 	
 	
-		def unaryHelper(): Array[Tree] = {
+		def unaryHelper(): Array[ConstituentTree] = {
 			if (children.size == 0) { 
 				return Array(this)
 			}
@@ -194,7 +221,7 @@ case class Tree(annotation: Annotation, children: Array[Tree]) extends Iterator[
 	
 	
 	/*
-	def unaryHelper(): Tree = {
+	def unaryHelper(): ConstituentTree = {
 		if (children.size == 1) {
 			return children(0).unaryHelper
 		}
@@ -204,7 +231,7 @@ case class Tree(annotation: Annotation, children: Array[Tree]) extends Iterator[
 	}
 	*/
 /*
-		return new Tree(annotation, children.map { child =>
+		return new ConstituentTree(annotation, children.map { child =>
 			if (child.children.size == 1) {
 				child.children(0).removeUnaryChains
 			}
@@ -220,22 +247,22 @@ case class Tree(annotation: Annotation, children: Array[Tree]) extends Iterator[
 	def isUnaryRewrite: Boolean = children.size == 1 && !isPreterminal
 //		def isUnaryRewrite: Boolean = children.size == 1 && children(0).children.size <= 1
 
-		def removeNones(): Tree = {
-			val nchildren = children.map(_.removeNones).filter(_ != null.asInstanceOf[Tree])
+		def removeNones(): ConstituentTree = {
+			val nchildren = children.map(_.removeNones()).filter(_ != null.asInstanceOf[ConstituentTree])
 			if (label == "-NONE-" || (children.size > 0 && nchildren.size == 0)) {
-				return null.asInstanceOf[Tree]
+				return null.asInstanceOf[ConstituentTree]
 			}
 			else {
-				return new Tree(annotation, nchildren)
+				return new ConstituentTree(annotation, nchildren)
 			}
 		}
 		
-def derivation(idx: Int): Array[Tree] = {
+def derivation(idx: Int): Array[ConstituentTree] = {
 	if (isLeaf && start == idx) {
 		return Array(this)
 	}
 	else {
-		val buffer = new ArrayBuffer[Tree]
+		val buffer = new ArrayBuffer[ConstituentTree]
 		for (child <- children) {
 			buffer ++= child.derivation(idx)
 		}
@@ -246,8 +273,8 @@ def derivation(idx: Int): Array[Tree] = {
 	}
 }
 		
-def depthFirstQueue: Array[Tree] = {
-	val trees = new ArrayBuffer[Tree]
+def depthFirstQueue: Array[ConstituentTree] = {
+	val trees = new ArrayBuffer[ConstituentTree]
 	trees += this
 	children.foreach(trees ++= _.depthFirstQueue)
 	trees.toArray
@@ -270,7 +297,7 @@ def nonterminals: Array[String] = {
 	buf.toArray
 }
 
-def setLabels(l: String): Unit = {
+def setLabels(l: String) {
 	this.annotation += "label" -> l
 	children.foreach(_.setLabels(l))
 }
@@ -278,7 +305,7 @@ def setLabels(l: String): Unit = {
 def extractRules: HashSet[String] = {
 	val rules = new HashSet[String]
 	if (!isLeaf && !isPreterminal) {
-		rules += "%s => %s".format(label(), children.map(_.label).mkString(" "))
+		rules += "%s => %s".format(label(), children.map(_.label()).mkString(" "))
 		children.foreach { child =>
 			rules ++= child.extractRules
 		}
@@ -287,13 +314,13 @@ def extractRules: HashSet[String] = {
 }
 
 def rules: Iterator[String] = {
-	(for (t <- this if !t.isPreterminal) yield Rule(t.label, t.children.map(_.label)).toString)
+	(for (t <- this if !t.isPreterminal) yield Rule(t.label(), t.children.map(_.label())).toString)
 }
 
 def rulesWithCounts: HashMap[String, Int] = {
 	val r = new HashMap[String, Int]
 	for (t <- this if !t.isPreterminal) {
-		val rule = Rule(t.label, t.children.map(_.label)).toString
+		val rule = Rule(t.label(), t.children.map(_.label())).toString
 		if (r.contains(rule)) {
 			r(rule) += 1
 		}
@@ -308,30 +335,30 @@ def rulesWithCounts: HashMap[String, Int] = {
 override def toString(): String = {
 	if (isPreterminal) {
 		if (annotation.contains("word")){
-			return "(%s %s)".format(label, word)
+			return "(%s %s)".format(label(), word())
 		}
 		else{
-			return "(%s %s)".format(label, "word")				
+			return "(%s %s)".format(label(), "word")
 		}
 	}
 	else {
-		return "(%s %s)".format(label, children.map(_.toString()).mkString(" "))
+		return "(%s %s)".format(label(), children.map(_.toString()).mkString(" "))
 	}
 }
 
-def toBareString(): String = {
+def toBareString: String = {
 	if (isPreterminal) {
 		return "(TAG word)"
 	}
 	else {
-		return "(%s %s)".format("CST", children.map(_.toBareString()).mkString(" "))
+		return "(%s %s)".format("CST", children.map(_.toBareString).mkString(" "))
 	}
 }
 
 // ------------ Iteration ------------- //
 
 	var idx = 0
-	var iterover = null.asInstanceOf[Array[Tree]]
+	var iterover = null.asInstanceOf[Array[ConstituentTree]]
 
 	def hasNext: Boolean = {
 		if (idx == 0) {
@@ -344,7 +371,7 @@ def toBareString(): String = {
 		nextCheck
 	}
 	
-	def next: Tree = {
+	def next(): ConstituentTree = {
 		val t = iterover(idx); idx += 1; t 
 	}
 	
@@ -355,11 +382,11 @@ def toBareString(): String = {
 
 object TreeFactory {
 		
-	def buildTree(label: String = "SPAN", word: String = "", children: Array[Tree] = Array()): Tree = {
+	def buildTree(label: String = "SPAN", word: String = "", children: Array[ConstituentTree] = Array()): ConstituentTree = {
 		val ann = new Annotation
 		ann += "label" -> label
 		ann += "word"  -> word
-		new Tree(ann, children)		
+		new ConstituentTree(ann, children)
 	}
 }
 

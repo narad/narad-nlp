@@ -10,14 +10,14 @@ class TreeTransformer(options: ArgParser) {
 	val unifyNonterms       = options.getBoolean("--unify.nonterms", false)
 	val fixRoot  					  = options.getBoolean("--fix.root", false)
 	
-	def transformTree(tree: Tree): Tree = {
+	def transformTree(tree: ConstituentTree): ConstituentTree = {
 		var t = tree
 		if (removeNones)       
-			t = t.removeNones
+			t = t.removeNones()
 		if (removeUnaryChains) 
-			t = t.removeUnaryChains
+			t = t.removeUnaryChains()
 		if (binarize)          
-			t = t.binarize
+			t = t.binarize()
 		if (removeTop)
 			t = t.removeTop
 		if (fixRoot)

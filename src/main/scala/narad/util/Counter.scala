@@ -3,7 +3,7 @@ import scala.collection.mutable.HashMap
 
 class HashCounter[T] extends HashMap[T, Double] {
 	
-	override def clone: HashCounter[T] = {
+	override def clone(): HashCounter[T] = {
 		val e = new HashCounter[T]
 		for (k <- e.keys) {
 			e(k) = this(k)

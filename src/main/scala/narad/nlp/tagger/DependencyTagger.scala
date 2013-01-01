@@ -42,8 +42,8 @@ trait DependencyTaggerFeatures extends TaggerFeatures with DependencyParseFeatur
 			out.write("\n")
 			rout.write("\n")
 		}
-		out.close		
-		rout.close
+		out.close()
+		rout.close()
 	}
 	
 	def extractUnigramFeatures(datum: CoNLLDatum, dict: TagDictionary, out1: FileWriter, out2: FileWriter) = {
@@ -54,8 +54,8 @@ trait DependencyTaggerFeatures extends TaggerFeatures with DependencyParseFeatur
 				val builder = new StringBuilder()
 				for (f <- feats) builder.append(" " + tag + "_" + f)
 				val correct = datum.postag(widx+1) == tag
-				out1.write("ulabel(%d,%s)\t%s%s\n".format(widx+1, tag, if (correct) "+" else "", builder.toString.trim))								
-				out2.write("ulabel(%d,%d)\t%s%s\n".format(widx+1, tidx, if (correct) "+" else "", builder.toString.trim))								
+				out1.write("ulabel(%d,%s)\t%s%s\n".format(widx+1, tag, if (correct) "+" else "", builder.toString().trim))
+				out2.write("ulabel(%d,%d)\t%s%s\n".format(widx+1, tidx, if (correct) "+" else "", builder.toString().trim))
 			}
 		}		
 	}
@@ -96,8 +96,8 @@ trait DependencyTaggerFeatures extends TaggerFeatures with DependencyParseFeatur
         val tt2 = if (i < j) tag2 else tag1
         val ti1 = if (i < j) t1 else t2
         val ti2 = if (i < j) t2 else t1
-        out1.write("blabel(%d,%d,%s,%s)\t%s%s\n".format(ii, jj, tt1, tt2,  if (correct) "+" else "", builder.toString.trim))
-        out2.write("blabel(%d,%d,%d,%d)\t%s%s\n".format(ii, jj, ti1, ti2,  if (correct) "+" else "", builder.toString.trim))
+        out1.write("blabel(%d,%d,%s,%s)\t%s%s\n".format(ii, jj, tt1, tt2,  if (correct) "+" else "", builder.toString().trim))
+        out2.write("blabel(%d,%d,%d,%d)\t%s%s\n".format(ii, jj, ti1, ti2,  if (correct) "+" else "", builder.toString().trim))
 
         //        out1.write("connect(%d,%d,%s,%s)\t%s%s\n".format(i, j, tag1, tag2, if (correct) "+" else "", builder.toString.trim))
 //				out2.write("connect(%d,%d,%d,%d)\t%s%s\n".format(i, j, t1, t2, if (correct) "+" else "", builder.toString.trim))

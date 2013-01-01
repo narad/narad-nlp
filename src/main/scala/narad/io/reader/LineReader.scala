@@ -4,16 +4,16 @@ import narad.util.ArgParser
 object LineReader {	
 
 	def read(filename: String): Iterator[String] = {
-			scala.io.Source.fromFile(filename).getLines 			
+			scala.io.Source.fromFile(filename).getLines()
 	}
 	
 	def read(filename: String, options: ArgParser): Iterator[String] = {
 		val encoding = options.getString("--input.encoding")
 		if (encoding != null) {
-			scala.io.Source.fromFile(filename, encoding).getLines 			
+			scala.io.Source.fromFile(filename, encoding).getLines()
 		}
 		else {
-			scala.io.Source.fromFile(filename).getLines 
+			scala.io.Source.fromFile(filename).getLines()
 		}
 	}
 }

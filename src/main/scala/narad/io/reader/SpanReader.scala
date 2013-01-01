@@ -22,16 +22,16 @@ object SpanReader {
 		}
 	}
 	
-	def read(filename: String, options: ArgParser): Array[Tree] = {
-		val trees = new ArrayBuffer[Tree]
-		val starts = io.Source.fromFile(filename).getLines.zipWithIndex.filter{case(line, i) => line.startsWith("@slen")}.map(_._2)
+	def read(filename: String, options: ArgParser): Array[ConstituentTree] = {
+		val trees = new ArrayBuffer[ConstituentTree]
+		val starts = io.Source.fromFile(filename).getLines().zipWithIndex.filter{case(line, i) => line.startsWith("@slen")}.map(_._2)
 //		System.err.println("Starts:\n" + starts.mkString("\n"))
-		val ends = io.Source.fromFile(filename).getLines.zipWithIndex.filter{case(line, i) => line.isEmpty}.map(_._2)
+		val ends = io.Source.fromFile(filename).getLines().zipWithIndex.filter{case(line, i) => line.isEmpty}.map(_._2)
 //		System.err.println("Ends:\n" + ends.mkString("\n"))
-		val lines = io.Source.fromFile(filename).getLines.toArray
+		val lines = io.Source.fromFile(filename).getLines().toArray
 //		System.err.println("# lines = " + lines.size)
 		for (s <- starts) {
-			val end = ends.filter(_ > s).next //find(_ > s)
+			val end = ends.filter(_ > s).next() //find(_ > s)
 			val slen = lines(s).split("\t")(1).trim.toInt
 			val words = lines(s+1).split("\t")(1).trim.split(" ")
 			val tags  = lines(s+2).split("\t")(1).trim.split(" ")
@@ -48,16 +48,16 @@ object SpanReader {
 			trees += tree
 			
 		}
-		return trees.toArray //.iterator //null.asInstanceOf[Iterable[Tree]]
+		return trees.toArray //.iterator //null.asInstanceOf[Iterable[ConstituentTree]]
 	}
 	
-	def spansToTree(spans: Array[Span], slen: Int): Tree = {
+	def spansToTree(spans: Array[Span], slen: Int): ConstituentTree = {
 		return TreeFactory.buildTree(label="TOP", 
 							children=findChildren(spans.sortBy(_.width).reverse, 0, slen))
 	}
 
-	def findChildren(spans: Array[Span], start: Int, end: Int): Array[Tree] = {
-		val children = new ArrayBuffer[Tree]
+	def findChildren(spans: Array[Span], start: Int, end: Int): Array[ConstituentTree] = {
+		val children = new ArrayBuffer[ConstituentTree]
 		val max = findMaxSpan(spans, start, end)
 		max match {
 			case None => return Array.fill(end-start)(TreeFactory.buildTree(label="TAG", children=Array()))
@@ -121,8 +121,8 @@ object SpanReader {
 		readSpanFile(filename, unbinarize, "CST", wrapTop)
 	}
 	
-	def readSpanFile(filename: String, unbinarize: Boolean, defaultLabel: String = "CST", wrapTop: Boolean): Array[Tree] = {
-		val trees = new ArrayBuffer[Tree]
+	def readSpanFile(filename: String, unbinarize: Boolean, defaultLabel: String = "CST", wrapTop: Boolean): Array[ConstituentTree] = {
+		val trees = new ArrayBuffer[ConstituentTree]
 		val binarySymbol = "@"
 		for (chunk <- ChunkReader.read(filename)) {
 			var words = Array[String]()		   
@@ -139,7 +139,7 @@ object SpanReader {
 					case default => None
 				}
 			}
-			var tree = null.asInstanceOf[Tree]
+			var tree = null.asInstanceOf[ConstituentTree]
 			if (unbinarize) {
 				tree = spansToTree(spans.filter(!_.label.contains(binarySymbol)).toArray, len)				
 			}
@@ -156,13 +156,13 @@ object SpanReader {
 	}	
 
 
-	def spansToTree(spans: Array[Span], slen: Int): Tree = {
+	def spansToTree(spans: Array[Span], slen: Int): ConstituentTree = {
 		return TreeFactory.buildTree(label="TOP", 
 							children=findChildren(spans.sortBy(_.width).reverse, 0, slen))
 	}
 
-	def findChildren(spans: Array[Span], start: Int, end: Int): Array[Tree] = {
-		val children = new ArrayBuffer[Tree]
+	def findChildren(spans: Array[Span], start: Int, end: Int): Array[ConstituentTree] = {
+		val children = new ArrayBuffer[ConstituentTree]
 		val max = findMaxSpan(spans, start, end)
 		max match {
 			case None => return Array.fill(end-start)(TreeFactory.buildTree(label="TAG", children=Array()))

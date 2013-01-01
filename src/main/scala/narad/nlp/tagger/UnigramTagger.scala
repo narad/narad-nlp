@@ -5,6 +5,7 @@ import narad.bp.optimize._
 import narad.bp.util._
 import narad.io.conll._
 import java.io._
+import collection.mutable.{HashMap, ArrayBuffer, Map}
 
 class UnigramTagger(params: TaggerParams) extends Tagger(params) with UnigramTaggerFeatures 
 
@@ -37,17 +38,33 @@ trait UnigramTaggerFeatures extends TaggerFeatures {
 					for (f <- feats) builder.append(" " + tag + "_" + f)
 					val isCorrect = correct(datum, widx+1, params.MODE) == tag //datum.postag(widx+1) == tag
 					val ll = if (useIndices) tidx else tag
-					out.write("ulabel(%d,%s)\t%s%s\n".format(widx+1, tag, if (isCorrect) "+" else "", builder.toString.trim))
-					rout.write("ulabel(%d,%d)\t%s%s\n".format(widx+1, tidx, if (isCorrect) "+" else "", builder.toString.trim))
+					out.write("ulabel(%d,%s)\t%s%s\n".format(widx+1, tag, if (isCorrect) "+" else "", builder.toString().trim))
+					rout.write("ulabel(%d,%d)\t%s%s\n".format(widx+1, tidx, if (isCorrect) "+" else "", builder.toString().trim))
 				}
 			}
 			out.write("\n")
 			rout.write("\n")
 		}
-		out.close		
-		rout.close
+		out.close()
+		rout.close()
 	}
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -4,15 +4,24 @@ import narad.bp.structure._
 import narad.bp.inference._
 import narad.bp.optimize._
 import narad.bp.util._
+import narad.bp.util.index._
 import narad.io.conll._
 import java.io._
 import scala.collection.mutable.{ArrayBuffer, HashSet}
 import scala.util.matching.Regex
+import collection.mutable
 
-object Tagger {
-	
-	def main(args: Array[String]) = {
-		val params = new TaggerParams(args)
+object Tagger extends TaggerFeatures {
+	var dict = new TagDictionary
+  var index = new ArrayIndex[String]()
+
+	def main(args: Array[String]) {
+    val params = new TaggerParams(args)
+    run(params)
+  }
+
+
+  def run(params: TaggerParams) {
 		val tagger = params.ORDER match {
 			case "BIGRAM" => new BigramTagger(params)
 			case "DEPENDENCY" => new DependencyTagger(params)
@@ -25,6 +34,9 @@ object Tagger {
 			tagger.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, dict, params)
 			tagger.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, dict, params)			
 		}
+    if (params.getBoolean("--integerize")) {
+
+    }
 		else if (params.getBoolean("--train")) {
 			val optimizer = new Optimizer(tagger) with L1Regularizer
 			val data = PotentialReader.read(params.TRAIN_FIDX_FILE).toArray
@@ -36,10 +48,30 @@ object Tagger {
 			optimizer.test(data, params)			
 		}
 	}
+
+
+  def run2(params: TaggerParams): TaggerClassifier = {
+    val tagger =  new UnigramTagger(params)
+    val dict   = TagDictionary.construct(params.TRAIN_FILE, mode=params.MODE)
+    val index  = new ArrayIndex[String]()
+    val out = new FileWriter("ti.fidx")
+    var reader = new CoNLLReader(params.TRAIN_FILE)
+    reader.zipWithIndex.foreach { case(datum, i) =>
+      val pex = getFeatures(datum.words.toArray, datum.postags.toArray, dict, index)
+      out.write(pex.toString())
+      out.write("\n")
+    }
+    val optimizer = new Optimizer(tagger) with L1Regularizer
+    val data = PotentialReader.read("ti.fidx").toArray
+    val pv = optimizer.train(data, params)
+    new TaggerClassifier(pv, dict, index, params)
+  }
 }
 
+//class TaggerClassifier(pv: Array[Double], tags: Array[String], dict: TagDictionary, index: Index[String], params: TaggerParams) extends TaggerFeatures {
 
-class Tagger(params: TaggerParams) extends FactorGraphModel with TaggerFeatures with BeliefPropagation {
+
+  class Tagger(params: TaggerParams) extends FactorGraphModel with TaggerFeatures with BeliefPropagation {
 
 		val glabelPattern = """.*label\(([0-9]+),.+""".r
 		val labelPattern  = """ulabel\(([0-9]+),(.+)\)""".r
@@ -77,7 +109,7 @@ class Tagger(params: TaggerParams) extends FactorGraphModel with TaggerFeatures 
     }
 */
     System.err.println("arities: " + arities.mkString(", "))
-    assert(ugroups.size == slen, "# of unary factors not equal to sentence length.")
+    assert(ugroups.size == slen, "# of unary factors (%d) not equal to sentence length (%d).".format(ugroups.size, slen))
     for (ugroup <- ugroups) {
       val idx = ugroup._1.toInt
       val upots = ugroup._2.filter(_.name.startsWith("ulabel"))
@@ -167,6 +199,37 @@ class TaggerModelInstance(graph: FactorGraph, ex: PotentialExample) extends Mode
 class ChainTaggerModelInstance(graph: FactorGraph, ex: PotentialExample) extends TaggerModelInstance(graph, ex) with TaggerChainInference
 
 
+class TaggerClassifier(pv: Array[Double], dict: TagDictionary, index: Index[String], params: TaggerParams) extends TaggerFeatures {
+  val LABEL_PATTERN  = """ulabel\(([0-9]+),(.+)\)""".r
+
+  def classify(words: Array[String]): Array[String] = {
+    val tagger = new UnigramTagger(params)
+    val pex = getFeatures(words, Array[String](), dict, index)
+    val mex = tagger.constructFromExample(pex, pv)
+    val optimizer = new Optimizer(tagger)
+    val data = PotentialReader.read(params.TEST_FIDX_FILE).toArray
+    optimizer.infer(mex, params)
+    decode(mex)
+  }
+
+  def decode(instance: ModelInstance): Array[String] = {
+    val beliefs = instance.marginals
+    val tags = new ArrayBuffer[String]
+    val groups = beliefs.filter(_.name.startsWith("ulabel")).groupBy{pot =>
+      val LABEL_PATTERN(widx, lidx) = pot.name
+      widx
+    }
+    for (group <- groups.toArray.sortBy(_._1.toInt)) {
+      val idx = group._1.toInt
+      val pots = group._2
+      assert(pots.size != 0, "Pots for group %d are empty in decoding?".format(idx))
+      val maxpot = narad.util.Functions.argmax[Potential](_.value, pots)
+      val LABEL_PATTERN(i,j) = maxpot.name
+      tags += j
+    }
+    return tags.toArray
+  }
+}
 
 
 

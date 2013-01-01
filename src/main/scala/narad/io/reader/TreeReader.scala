@@ -4,9 +4,15 @@ import narad.nlp.trees._
 import narad.util._
 import scala.collection.mutable.{ArrayBuffer, HashMap, HashSet}
 
+class TreeReader(filename: String, options: ArgParser) extends TreebankReader(filename, options) {
+
+}
+
+
+/*
 object TreeReader {
 	
-	def read(options: ArgParser): Array[Tree] = {
+	def read(options: ArgParser): Array[ConstituentTree] = {
 		val treeFile      = options.getString("--treebank")
 		val spanFile      = options.getString("--span.file")
 		val sentenceFile  = options.getString("--sentence.file")
@@ -30,8 +36,8 @@ object TreeReader {
 		}
 
 
-		trees = trees.filter(_.tokens.size >= min)
-		trees = trees.filter(_.tokens.size <= max)
+		trees = trees.filter(_.tokens().size >= min)
+		trees = trees.filter(_.tokens().size <= max)
 		trees.foreach(_.annotateWithIndices(0))
 
 		val transformer = new TreeTransformer(options)
@@ -45,16 +51,16 @@ object TreeReader {
 			trees.foreach(println(_))			
 		}
 		if (shouldPrintSentences) {
-			trees.foreach{t => println(t.tokens.map(_.word).mkString(" "))}
+			trees.foreach{t => println(t.tokens().map(_.word).mkString(" "))}
 		}
 		trees
 	}
 
-	def read(filename: String): Array[Tree] = {
+	def read(filename: String): Array[ConstituentTree] = {
 		read(new ArgParser(Array("--treebank", filename)))
 	}
 	
-	def read(filename: String, options: ArgParser): Array[Tree] = {
+	def read(filename: String, options: ArgParser): Array[ConstituentTree] = {
 		val transformer = new TreeTransformer(options)
 		read(new ArgParser(Array("--treebank", filename))).map(t => transformer.transformTree(t))
 	}
@@ -65,3 +71,4 @@ object TreeReader {
 	}
 }
 
+             */

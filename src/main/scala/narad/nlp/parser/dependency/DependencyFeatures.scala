@@ -3,6 +3,7 @@ package narad.nlp.parser.dependency
 import scala.collection.mutable.ArrayBuffer
 import narad.io.conll._
 import java.io.FileWriter
+import narad.nlp.ling.Word
 
 trait DependencyParseFeatures {
 	
@@ -240,6 +241,50 @@ trait DependencyParseFeatures {
 		
 		return feats.toArray
 	}
+
+  def wordLevelDependencyFeatures(words: Array[String], ohead: Int, odep: Int): Array[String] = {
+    val feats = new ArrayBuffer[String]
+    val tokens = Array("<ROOT>") ++ words ++ Array("<END>")
+    val hword = words(ohead)
+    val dword = words(odep)
+    val head = ohead
+    val dep = odep
+    val dir  = if (dep > head) "R" else "L"
+    val dist = scala.math.abs(head - dep - 1)
+
+    feats += "[head-word]-%s".format(hword)
+    feats += "[dep-word]-%s".format(dword)
+    feats += "[head-word-dist]-%s-%d".format(hword, dist)
+    feats += "[dep-word-dist]-%s-%d".format(dword, dist)
+    feats += "[head-word-dir]-%s-%s".format(hword, dir)
+    feats += "[dep-word-dir]-%s-%s".format(dword, dir)
+
+    feats += "[head-dep-word]-%s-%s".format(hword, dword)
+    feats += "[head-dep-word-dist]-%s-%s-%d".format(hword, dword, dist)
+    feats += "[head-dep-word-dir]-%s-%s-%s".format(hword, dword, dir)
+    feats += "[head-dep-word-dist-dir]-%s-%s-%d-%s".format(hword, dword, dist, dir)
+
+    feats += "[prev-word-head-word]-%s-%s".format(tokens(head-1), hword)
+    feats += "[prev-word-dep-word]-%s-%s".format(tokens(dep-1), dword)
+    feats += "[next-word-head-word]-%s-%s".format(tokens(head+1), hword)
+    feats += "[next-word-dep-word]-%s-%s".format(tokens(dep+1), dword)
+
+    feats += "[prevword-headword-depword]-%s-%s-%s".format(tokens(head-1), hword, dword)
+    feats += "[prevword-depword-headword]-%s-%s-%s".format(tokens(dep-1), dword, hword)
+    feats += "[nextword-headword-depword]-%s-%s-%s".format(tokens(head+1), hword, dword)
+    feats += "[nextword-depword-headword]-%s-%s-%s".format(tokens(dep+1), dword, hword)
+
+    val lesser  = if (dep < head) dep else head
+    val greater = if (dep < head) head else dep
+    if (dist < 10) feats += "[words-between]-%s".format(tokens.slice(lesser, greater))
+    val charWindow = 4
+    for (i <- 1 until scala.math.max(hword.size, charWindow)) feats += "[hword-%d]-%s".format(i, hword.substring(-i))
+    for (j <- 1 until scala.math.max(dword.size, charWindow)) feats += "[dword-%d]-%s".format(j, dword.substring(-j))
+    for (i <- 1 until scala.math.max(hword.size, charWindow); j <- 1 until scala.math.max(dword.size, charWindow)) {
+      feats += "[hword-%d-dword-%d]-%s-%s".format(i, j, hword.substring(-i), dword.substring(-j))
+    }
+    return feats.toArray
+  }
 }
 
 

@@ -68,7 +68,7 @@ class NamedEntityReader(filename: String, coarsen: Boolean = true) extends mutab
 				case ontoEnd(entityString) => {
 					tokens += entityString
 					entities += new NamedEntity(tokens.toArray, refine(label, coarsen), count, index+1-tokens.size, index+1)
-					tokens.clear
+					tokens.clear()
 				}
 				case default => {
 					if (tokens.size > 0) tokens += token

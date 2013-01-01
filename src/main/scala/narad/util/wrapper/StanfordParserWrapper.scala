@@ -2,7 +2,7 @@ package narad.util
 import edu.stanford.nlp.trees._
 import edu.stanford.nlp.parser.lexparser.{LexicalizedParser, Options}
 import edu.stanford.nlp.trees.international.pennchinese.ChineseGrammaticalStructure
-import narad.nlp.trees.{Tree => STree, TreeFactory => STreeFactory}
+import narad.nlp.trees.{ConstituentTree => STree, TreeFactory => STreeFactory}
 import narad.io.reader.TreebankReader
 import scala.collection.JavaConversions._ 
 
@@ -105,18 +105,18 @@ object StanfordParserWrapper {
 			val test = "The boy saw the man with the telescope ."
 			println("Parsing sentence <%s>".format(test))
 			parser.constituencyParse(test) match {
-				case Some(tree) => println("Constituency Tree:"); println(tree)
+				case Some(tree) => println("Constituency ConstituentTree:"); println(tree)
 				case _=> 
 			}
 			parser.dependencyParse(test) match {
-				case Some(tree) => println("Dependency Tree:"); println(tree.mkString(" "))
+				case Some(tree) => println("Dependency ConstituentTree:"); println(tree.mkString(" "))
 				case _=> 
 			}			
 		}
 		else {
-			for (line <- io.Source.fromFile(input).getLines) {
+			for (line <- io.Source.fromFile(input).getLines()) {
 				parser.constituencyParse(line) match {
-					case Some(tree) => println(tree.toString.replaceAll("\\\\\\/", "/"))
+					case Some(tree) => println(tree.toString().replaceAll("\\\\\\/", "/"))
 					case _ =>
 				}
 			}

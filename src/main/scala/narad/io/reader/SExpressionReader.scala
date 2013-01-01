@@ -8,12 +8,12 @@ object SexpReader {
 	val rdelim = ")"
 
 	def read(filename: String): Iterator[String] = {
-		val text = scala.io.Source.fromFile(filename).getLines.mkString(" ")
+		val text = scala.io.Source.fromFile(filename).getLines().mkString(" ")
 		Iterator.continually(readNext(text)).takeWhile(_ != None)
 	}
 
 	def read[T](filename: String, parseString: String => T): Iterator[T] = {
-		val text = scala.io.Source.fromFile(filename).getLines.mkString(" ")
+		val text = scala.io.Source.fromFile(filename).getLines().mkString(" ")
 		Iterator.continually(parseString(readNext(text))).takeWhile(_ != null)
 	}
 

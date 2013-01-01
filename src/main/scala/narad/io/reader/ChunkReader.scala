@@ -14,7 +14,7 @@ class ChunkReader(filename: String, iencoding: String="UTF-8") extends Iterable[
 	def iterator: Iterator[String] = {
 		var lines = Array[String]()
 		try {
-			lines = scala.io.Source.fromFile(filename, iencoding).getLines.toArray			
+			lines = scala.io.Source.fromFile(filename, iencoding).getLines().toArray
 		}
 		catch {
 			case e: Exception => System.err.println("Error reading file <%s> in ChunkReader.read (encoding:%s)".format(filename, iencoding))

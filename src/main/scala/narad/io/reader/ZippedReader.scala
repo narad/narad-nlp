@@ -5,8 +5,8 @@ object ZippedReader {
 	private var processed2 = 0
 
 	def read(filename1: String, filename2: String): Iterator[(String, String)] = {
-		val lines1 = scala.io.Source.fromFile(filename1).getLines.toArray
-		val lines2 = scala.io.Source.fromFile(filename2).getLines.toArray
+		val lines1 = scala.io.Source.fromFile(filename1).getLines().toArray
+		val lines2 = scala.io.Source.fromFile(filename2).getLines().toArray
 		Iterator.continually(Tuple(readNext1(lines1), readNext2(lines2))).takeWhile(t => t._1 != null && t._2 != null)
 	}
 

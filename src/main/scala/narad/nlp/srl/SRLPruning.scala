@@ -1,8 +1,9 @@
-/*
+
 package narad.nlp.srl
 import java.io._
 import scala.collection.mutable.{HashMap, HashSet}
-import narad.io.reader.{ChunkReader, SRLReader}
+import narad.io.reader.{ChunkReader}
+import scala.math._
 
 object SRLPruning {
 
@@ -26,7 +27,9 @@ object SRLPruning {
 		val dists  = new Array[Int](1000)
 		val numPreds = 0
 
-		for (datum <- SRLReader.read(options)) {
+    val reader = new ChunkReader(options.getString("--srl.file"))
+		for (chunk <- reader) {
+      val datum = SRLDatum.constructFromCoNLL(chunk.split("\n"))
 			for (label <- datum.labels) {
 				if (args.contains(label)) args(label) += 1 else args(label) = 1
 			}
@@ -49,20 +52,22 @@ object SRLPruning {
 					senses(pred) += sense
 				}
 				for (j <- 1 to datum.slen if datum.hasArg(i,j)) {
-					dists(Math.abs(i-j)) += 1
+					dists(abs(i-j)) += 1
 				}
 			}
 		}
-		
+
+    /*
 		System.err.println("About to print preds")
 		for (i <- 0 until 20) {
 			System.err.println("# of preds with %d".format(senses.filter(_._2.size == i).size))
 		}
-		
+		*/
+
 		if (argFile != null) {
-			var out = new PrintWriter(new File(argFile), oformat);
-			val labs = args.toArray.sortBy(_._2 * -1).filter(_._2 >= lthreshold)
-			out.write(labs.map(_._1).mkString("\n"))
+      var out = new PrintWriter(new File(argFile), oformat);
+			val labs = args.toArray.sortBy(_._2 * -1).filter(_._2 >= lthreshold).map(_._1)
+			out.write(labs.mkString("\n"))
 			out.close
 		}
 		if (senseFile != null) {
@@ -74,13 +79,13 @@ object SRLPruning {
 		}
 		if (suffixFile != null) {
 			var out = new PrintWriter(new File(suffixFile), oformat);
-			val max = suffixes.toArray.sortBy(_._2 * -1).first._1
+			val max = suffixes.toArray.sortBy(_._2 * -1).head._1
 			out.write(max + "\n")
 			out.close
 		}
 		if (distFile != null) {
 			val out = new FileWriter(distFile)
-			println(dists.mkString("\n"))
+	//		println(dists.mkString("\n"))
 			val sum = dists.foldLeft(0.0)(_+_)
 			val tally = sum / 100 * dpercent
 			var set = false
@@ -152,4 +157,3 @@ return ltypes.filter(l => ltokens.filter(_ == l).size > threshold)
 */
 
 
-*/

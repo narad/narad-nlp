@@ -34,7 +34,7 @@ object FrequencyTagger {
 					println(mft)					
 				}
 			}
-			println
+			println()
 		}
 	}
 }

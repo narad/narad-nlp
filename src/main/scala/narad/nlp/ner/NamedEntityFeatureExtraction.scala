@@ -1,12 +1,13 @@
 package narad.nlp.ner
 import java.io.{File, FileWriter}
 import narad.io.onto.{OntoDatum, OntoReader}
+
 import narad.nlp.ling.Lexicon
-import narad.nlp.parser.constituent.ConstituentFeatureFactory
 import narad.nlp.trees.Token
 import narad.util.ArgParser
 import scala.collection.mutable.ArrayBuffer
 
+/*
 object NamedEntityFeatureExtraction {
 
 	def featureExtractionLoop(nerFile: String, syntaxFile: String, labels: Array[String], outputFile: String, options: ArgParser) = {
@@ -26,9 +27,9 @@ object NamedEntityFeatureExtraction {
 			featureExtraction(datum, labels, out, dictionaries, options)
 			i += 1
 		}
-		System.err.println
+		System.err.println()
 		System.err.println("Feature extraction time: " + (System.currentTimeMillis() - startTime) / 1000.0 + "s.")		
-		out.close
+		out.close()
 	}
 
 	def featureExtraction(datum: OntoDatum, labels: Array[String], out: FileWriter, dictionaries: Array[Lexicon], options: ArgParser) = {
@@ -37,7 +38,7 @@ object NamedEntityFeatureExtraction {
 		val useBrackets = options.getBoolean("--use.syntax.brackets")
 		val useLabels = options.getBoolean("--use.syntax.labels")
 		val ner   = datum.ner
-		val tokens = datum.tree.tokens
+		val tokens = datum.tree.tokens()
 		val slen = tokens.size
 		if (options.getBoolean("--print.header", true)) {
 			out.write("@slen\t%d\n".format(slen))				
@@ -50,7 +51,7 @@ object NamedEntityFeatureExtraction {
 				var labeled = false
 				for (i <- Math.max(0, j-order) to j-1) {
 					val width = j-i
-					val feats = NamedEntityFeatures.extractFeatures(tokens, i, j, dictionaries)
+					val feats = nerFeatures(tokens, i, j)
 					val correctSpan = if (ner.containsSpan(i,j) || (width == 1 && !ner.coversSpan(i,j))) "+" else ""
 					out.write("nerbracket(%d,%d)\t%s%s\n".format(i, j, correctSpan, feats.mkString(" ")))
 
@@ -58,10 +59,10 @@ object NamedEntityFeatureExtraction {
 						val builder = new StringBuilder()
 						for (f <- feats) builder.append("O_" + f)
 						if (!ner.containsSpan(i,j) && !ner.coversSpan(i,j)) {
-							out.write("nerlabel(%d,%d,1)\t+%s\n".format(i,j, builder.toString.trim))									
+							out.write("nerlabel(%d,%d,1)\t+%s\n".format(i,j, builder.toString().trim))
 						}
 						else {
-							out.write("nerlabel(%d,%d,1)\t%s\n".format(i,j, builder.toString.trim))									
+							out.write("nerlabel(%d,%d,1)\t%s\n".format(i,j, builder.toString().trim))
 						}
 					}
 
@@ -72,53 +73,10 @@ object NamedEntityFeatureExtraction {
 						val builder = new StringBuilder()
 						for (f <- feats) builder.append(" " + label + "_" + f)
 						val correctLabel = if (ner.containsSpanLabel(i,j,label)) "+" else ""
-						out.write("nerlabel(%d,%d,%s)\t%s%s\n".format(i, j, labels.indexOf(label)+2, correctLabel, builder.toString.trim))				
+						out.write("nerlabel(%d,%d,%s)\t%s%s\n".format(i, j, labels.indexOf(label)+2, correctLabel, builder.toString().trim))
 					}
 				}
 			}				
-		}
-
-		if (useBrackets) {
-			val tree = datum.tree.binarize
-			tree.annotateWithIndices(0)
-			val window = 2
-			val padtokens = pad(tree.tokens, window, window)
-			for ( width <- 2 to slen; start <- 0 to (slen - width) if (start > 0 || width < slen)) {
-				val end = start + width
-				val si = start + window
-				val ei = end + window-1
-				val spanName = "brack"
-				val labelName = "label"
-				val spanFeatures = ConstituentFeatureFactory.syntaxSpanFeatures(padtokens, si, ei)
-				val labelFeatures = spanFeatures //++ ConstituentFeatureFactory.syntaxLabelFeatures(tokens, si, ei)
-				val labelSet = tree.labels(start, end)
-				out.write("%s(%d,%d)\t%s%s\n".format(spanName, start, end, if (labelSet.size > 0) "+" else "", spanFeatures.mkString(" ")))
-				val syntaxlabels = Array("NP", "VP") // etc etc
-				if (useLabels) {
-					for (label <- syntaxlabels) {
-						val builder = new StringBuilder()
-						for (f <- labelFeatures) builder.append(" " + label + "_" + f)
-						out.write("%s%s(%d,%d)\t%s%s\n".format(labelName, label, start, end, if (labelSet contains label) "+" else "", builder.toString.trim))					
-					}														
-				}
-			}
-		}
-		if (options.getBoolean("--agree.features", useBrackets)) {
-			val tree = datum.tree.binarize
-			tree.annotateWithIndices(0)
-			val window = 2
-			val padtokens = pad(tree.tokens, window, window)
-			for ( width <- 2 to order; start <- 0 to (slen - width) if (start > 0 || width < slen)) {
-				val end = start + width
-				val si = start + window
-				val ei = end + window-1
-				val afeatures = connectionFeatures(padtokens, si, ei)   //ConstituentFeatureFactory.syntaxSpanFeatures(padtokens, si, ei).map("agree_%s".format(_))
-				val connectFeats = connectionFeatures(tokens, start, end)
-				val nerCorrect = (ner.containsSpan(start,end) || (width == 1 && !ner.coversSpan(start,end)))
-				val syntaxCorrect = tree.containsSpan(start, end)
-				val connectCorrect = false // nerCorrect && syntaxCorrect - they seem to need to be unmarked
-				out.write("agree(%d,%d)\t%s%s\n".format(start, end, if (connectCorrect) "+" else "", connectFeats.mkString(" ")))
-			}
 		}
 		out.write("\n")
 	}
@@ -175,7 +133,7 @@ object NamedEntityFeatureExtraction {
 			for (file <- new File(dir).listFiles) {
 				if (file.getName.endsWith(".txt")) {
 					val lexicon = new Lexicon(file.getName.substring(0, file.getName.indexOf(".")))
-					for (entry <- io.Source.fromFile(file).getLines) {
+					for (entry <- io.Source.fromFile(file).getLines()) {
 						lexicon.index(entry.trim)
 					}
 					lexicons += lexicon
@@ -191,6 +149,7 @@ object NamedEntityFeatureExtraction {
 	}
 }
 
+*/
 
 //			out.write("@words\t%s\n".format(tokens.map(_.word).mkString(" ")))
 //			out.write("@tags\t%s\n".format(tokens.map(_.pos).mkString(" ")))

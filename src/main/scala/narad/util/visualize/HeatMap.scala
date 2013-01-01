@@ -56,6 +56,6 @@ class HeatMap(grid: Array[Array[Double]], xlabels: Array[String], ylabels: Array
 
 		var out = new java.io.PrintWriter(rFile)
 		out.write(ab.mkString("\n"))
-		out.close							
+		out.close()
 	}
 }

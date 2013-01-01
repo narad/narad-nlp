@@ -9,8 +9,8 @@ object ColumnEvaluator {
 		val offset   = options.getInt("--offset")
 		val delim    = options.getString("--delim", "\t")
 		val verbose  = options.getBoolean("--verbose", false)
-		val glines = io.Source.fromFile(goldFile).getLines.toArray
-		val tlines = io.Source.fromFile(testFile).getLines.toArray
+		val glines = io.Source.fromFile(goldFile).getLines().toArray
+		val tlines = io.Source.fromFile(testFile).getLines().toArray
 		assert(glines.size == tlines.size, "Number of lines do not match: %d (gold) vs %d (test)".format(glines.size, tlines.size))
 
 		val gden = glines.map(_.trim).zipWithIndex.filter(_._1.isEmpty)

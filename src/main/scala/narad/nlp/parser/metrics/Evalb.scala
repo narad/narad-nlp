@@ -1,17 +1,17 @@
 package narad.nlp.parser.metrics
 import java.text.DecimalFormat
-import narad.nlp.trees.Tree
+import narad.nlp.trees.ConstituentTree
 import narad.io.reader.{TreebankReader, ZippedReader}
 import narad.util.{ArgParser, HashCounter}
 import scala.collection.mutable.{HashMap, HashSet}
 
 object EvalContainer {
 	
-	def construct(goldTree: Tree, testTree: Tree, verbose: Boolean = false): EvalContainer = {
+	def construct(goldTree: ConstituentTree, testTree: ConstituentTree, verbose: Boolean = false): EvalContainer = {
 		goldTree.annotateWithIndices(0)
 		testTree.annotateWithIndices(0)
-		val goldTokens = goldTree.tokens
-		val testTokens = testTree.tokens
+		val goldTokens = goldTree.tokens()
+		val testTokens = testTree.tokens()
 		val goldSpans = goldTree.getSpans.toArray
 		val testSpans = testTree.getSpans.toArray
 
@@ -152,7 +152,7 @@ object Evalb {
 				//		println("                 78.97  83.85  18269 23135 21787    630  27639 26468    95.76")
 				// crossing bracket score in summary not correct
 				println("=== Summary ===")
-				println
+				println()
 
 				println("-- All --")
 				println("Number of sentence        =" + pad(evals.size.toString, 7))
@@ -166,9 +166,9 @@ object Evalb {
 				println("No crossing               =" + pad(formatter.format(100 * stats.count("no crosses") / evals.size), 7, dir="LEFT"))
 				println("2 or less crossing        =" + pad(formatter.format(100 * stats.count("<=2 crosses") / evals.size), 7, dir="LEFT"))
 				println("Tagging accuracy          =" + pad(formatter.format(100 * stats.count("tags") / stats.count("tokens")) , 7, dir="LEFT"))		
-				println
+				println()
 
-				evals = gparses.zip(tparses).filter(_._1.tokens.size <= 40).map(p => EvalContainer.construct(p._1, p._2))
+				evals = gparses.zip(tparses).filter(_._1.tokens().size <= 40).map(p => EvalContainer.construct(p._1, p._2))
 				stats = evals.foldLeft(new EvalContainer)(_.combine(_))
 				println("-- len<=40 --")
 				println("Number of sentence        =" + pad(evals.size.toString, 7))
@@ -182,7 +182,7 @@ object Evalb {
 				println("No crossing               =" + pad(formatter.format(100 * stats.count("no crosses") / evals.size), 7, dir="LEFT"))
 				println("2 or less crossing        =" + pad(formatter.format(100 * stats.count("<=2 crosses") / evals.size), 7, dir="LEFT"))
 				println("Tagging accuracy          =" + pad(formatter.format(100 * stats.count("tags") / stats.count("tokens")) , 7, dir="LEFT"))
-				println
+				println()
 				
 				for (label <- labels.toArray.sortBy{l => -1 * (stats.count("%s correct".format(l)) / stats.count("test %s comps".format(l)))}) {
 					val lcorrect = stats.count("%s correct".format(label))
@@ -209,7 +209,7 @@ def pad(str: String, len: Int, dir: String="LEFT"): String = {
 			}
 		}
 	}
-	return builder.toString
+	return builder.toString()
 }
 }
 

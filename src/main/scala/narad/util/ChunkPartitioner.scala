@@ -37,7 +37,7 @@ object ChunkPartitioner {
 				writers(i-1).write(chunk + "\n\n")
 				if (i % bins == 0) i = 1 else i += 1
 			}
-			for (i <- 1 to bins) writers(i-1).close			
+			for (i <- 1 to bins) writers(i - 1).close()
 		}
 	}
 }

@@ -1,11 +1,181 @@
 package narad.nlp.ner
 
+import narad.bp.structure._
+import narad.bp.inference.BeliefPropagation
+import narad.bp.structure.Potential
+import narad.bp.util.PotentialExample
+import scala.util.matching.Regex
+
+class NamedEntityModelInstance(graph: FactorGraph, ex: PotentialExample) extends ModelInstance(graph, ex)
+
+class NamedEntityModel(params: NamedEntityParams) extends FactorGraphModel with NamedEntityFeatures with BeliefPropagation {
+
+  val INDICES_PATTERN = """.*\(([0-9]+),([0-9]+)[^0-9].*""".r
+  val glabelPattern = """.*label\(([0-9]+),.+""".r
+  val BIGRAM_PATTERN = """blabel\(([0-9]+),([0-9]+),(.+)\)""".r
+  val NER_SPAN_PATTERN           = """nerbracket\(([0-9]+),([0-9]+)\)""".r
+  val NER_LABEL_PATTERN          = """nerlabel\(([0-9]+),([0-9]+),(.+)\)""".r
+  val NER_INDICES_PATTERN        = """ner.+\(([0-9]+),([0-9]+).+""".r
+
+  def constructFromExample(ex: PotentialExample, pv: Array[Double]): ModelInstance = { //(pots: Array[Potential], slen: Int, useBigrams: Boolean = false, useSyntax: Boolean = false): TaggerModel = {
+  val slen   = ex.attributes.getOrElse("slen", "-1").toInt
+  val maxseg = ex.attributes.getOrElse("maxseg", "10").toInt
+  val labels = ex.attributes.getOrElse("labels", "").trim.split(" ")
+  val arity = labels.size
+    val pots = ex.exponentiated(pv)
+    val fg = new FactorGraphBuilder(pots)
+    addNamedEntityPrediction(fg, pots, slen, maxseg)
+    return new NamedEntityModelInstance(fg.toFactorGraph, ex)
+  }
+
+
+  def addNamedEntityPrediction(fg: FactorGraphBuilder, pots: Array[Potential], slen: Int, maxWidth: Int, useSemiCRF: Boolean=true) = {
+
+      val groups = pots.groupBy{p =>
+        val INDICES_PATTERN(start, end) = p.name
+        (start.toInt, end.toInt)
+      }
+      println("GROUPS = " + groups.size)
+
+ //     val fg = new FactorGraphBuilder(pots)
+      for (width <- 1 to maxWidth; start <- 0 until slen if start+width <= slen) {
+        val end = start + width
+        System.err.println("Doing indices %d,%d".format(start, end))
+        val gpots = groups((start, end))
+        fg.addVariable("nerspanvar(%d,%d)".format(start, end), arity=2)
+        fg.addUnaryFactor("nerspanvar(%d,%d)".format(start, end), "nerspanfac(%d,%d)".format(start, end), gpots(0))
+        assert(gpots(0).name.contains("nerbracket"), "First pot in set was not for ner bracketing!")
+        if (gpots.size > 1) {
+            fg.addVariable("nerlabelvar(%d,%d)".format(start, end), arity=gpots.size-1)
+            fg.addNamed1Factor("nerlabelvar(%d,%d)".format(start, end), "nerlabelfac(%d,%d)".format(start, end), gpots.tail)
+//            fg.addEPUFactorByName("nerspanvar(%d,%d)".format(start, end),
+//                                  "nerlabelvar(%d,%d)".format(start, end),
+//                                  gpots.size-1,
+//                                  "nerEPUfac(%d,%d)".format(start, end))
+        }
+      }
+//      System.err.println("Order identified as " + maxWidth)
+     if (useSemiCRF) fg.addSegmentationFactor(new Regex("nerspanvar"), slen=slen, maxWidth=maxWidth)
+    }
+
+  def decode(instance: ModelInstance) = {
+    val beliefs = instance.marginals
+//    inferSeg(instance.graph)
+/*
+    val out = new FileWriter("test.itagged", true)
+    out.write(tags.mkString("\n") + "\n")
+    out.write("\n")
+    out.close()
+  */
+  }
+/*
+  def inferSeg(graph: FactorGraph, slen: Int, maxSeg: Int, numLabels: Int=5, brackName: String="nerlabelvar"): Array[(Int, Int, String)] = { // }//[Int] = {
+  //		val NER_LABEL_VARIABLE_PATTERN = new Regex("""nerlabelvar\(([0-9]+),([0-9]+),(.+)\)""")
+  val NER_LABEL_VARIABLE_PATTERN = new Regex("""nerlabelvar\(([0-9]+),([0-9]+)\)""")
+
+    val mu = new Array[Double](slen+1)
+    val lens = new Array[Int](slen+1)
+    val labs = new Array[Int](slen+1)
+    val scores = Array.ofDim[Double](slen+1, slen+1, numLabels+1)
+
+    for (node <- graph.variables) {
+      node.name match {
+        case NER_LABEL_VARIABLE_PATTERN(ss, es) => {
+          val b = node.getBeliefs(graph)
+          System.err.println("BELIEFS of b: " + b.mkString(", "))
+          val i = ss.toInt
+          val k = es.toInt
+          val noseg = Math.log(b(0)._2)
+          for (lab <- 1 until numLabels) {
+            scores(i)(k)(lab) = Math.log(b(lab)._2) - noseg
+          }
+        }
+        case _=>
+      }
+
+      mu(0) = 0
+      for (k <- 1 to slen) {
+        var best = Double.NegativeInfinity
+        var bestLen = -1
+        var bestLab = -1
+        for (w <- 1 to Math.min(maxSeg, k)) {
+          val i = k - w
+          for (lab <- 1 until numLabels) {
+            val cur = mu(i) + scores(i)(k)(lab)
+            if ( cur > best ) {
+              best = cur
+              bestLen = w
+              bestLab = lab
+            }
+          }
+        }
+        mu(k) = best
+        lens(k) = bestLen
+        labs(k) = bestLab
+      }
+    }
+
+    val res = new ArrayBuffer[(Int, Int, String)]
+    var k = slen
+    while (k > 0) {
+      val w = lens(k)
+      //			res += labs(k)
+      //			res += (k)
+      //			res += (k-w)
+      res += Tuple(k-w, k, labs(k).toString)
+      k -= w
+    }
+    System.err.println("Ents found = " + res.size)
+    return res.toArray
+  }
+       */
+
+  def options = params
+}
+
+class TaggerModelInstance(graph: FactorGraph, ex: PotentialExample) extends ModelInstance(graph, ex)
 
 
 
 
 
 
+
+
+
+
+
+/*
+    def addNamedEntityPrediction(model: FactorGraphBuilder, pots: Array[Potential], slen: Int, useSemiCRF: Boolean=true) = {
+      var maxWidth = 0
+      for (i <- 0 until pots.size) {
+        pots(i).name match {
+          case NER_SPAN_PATTERN(startstr, endstr) => {
+            val start = startstr.toInt
+            val end   = endstr.toInt
+            val width = end-start
+            if (width > maxWidth) maxWidth = width
+            model.addVariable("nerspanvar(%d,%d)".format(start, end), 2)
+            model.addUnaryFactor("nerspanvar(%d,%d)".format(start, end), "nerspanfac(%d,%d)".format(start, end), pots(i))
+          }
+          case NER_LABEL_PATTERN(startstr, endstr, label) => {
+            val start = startstr.toInt
+            val end   = endstr.toInt
+            model.addVariable("nerlabelvar(%d,%d,%s)".format(start, end, label), 2)
+            model.addUnaryFactor("nerlabelvar(%d,%d,%s)".format(start, end, label), "nerlabelfac(%d,%d,%s)".format(start, end, label), pots(i))
+          }
+          case _=> {
+            					System.err.println("Could not match potential name: %s".format(pots(i).name))
+          }
+        }
+      }
+      for (start <- 0 until slen; end <- start+1 to slen if (end-start <= maxWidth)) {
+        model.addIsAtMost1Factor(new Regex("nerspanvar\\(%d,%d\\)".format(start, end)), new Regex("nerlabelvar\\(%d,%d,.+\\)".format(start, end)), "nerIsAtMost(%d,%d)".format(start, end))
+      }
+      System.err.println("Order identified as " + maxWidth)
+      if (useSemiCRF) model.addSegmentationFactor(new Regex("nerspanvar"), slen=slen, maxWidth=maxWidth)
+    }
+ */
 
 
 
