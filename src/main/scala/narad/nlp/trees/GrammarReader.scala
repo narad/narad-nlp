@@ -1,5 +1,6 @@
 package narad.nlp.trees
-import narad.io.reader._
+import narad.io.util._
+import narad.io.tree.TreebankReader
 import narad.util.ArgParser
 import java.io.FileWriter
 import scala.collection.mutable.{HashMap, HashSet}

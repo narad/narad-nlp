@@ -1,60 +1,27 @@
 package narad.nlp.srl
-import scala.collection.mutable.{ArrayBuffer, HashMap}
+import scala.collection.mutable.{ArrayBuffer}
 import java.io.FileWriter
-import narad.io.reader.ChunkReader
-import util.Random
 import scala.math._
 
 
 trait SRLFeatures {
   val dummyToken = SRLToken("ROOT", "ROOT_LEMMA", "ROOT_POS", "ROOT_CPOS")
 
-  def extractFeatures(trainFile: String, trainFeatureFile: String, roles: Array[String], senseDict: HashMap[String, Array[String]], params: SRLParams) = {
-    val useIndices = false
-    val in = trainFile
-    val out = new FileWriter(trainFeatureFile)
-    val rout = new FileWriter(trainFeatureFile + ".bpdp")
-    val reader = new ChunkReader(in)
-    reader.zipWithIndex.foreach { case(chunk, i) =>
-      val datum = SRLDatum.constructFromCoNLL(chunk.split("\n"))
-      if (i % params.PRINT_INTERVAL == 0) System.err.println("  example %d...".format(i))
-      val slen = datum.slen
-      val gpreds = datum.predicates
-      out.write("@slen\t%d\n".format(slen))
-      out.write("@maxdist\t%d\n".format(1000))
-      out.write("@roles\t%s\n".format(roles.mkString(" ") + " A-DUMMY"))
-      out.write("@gpreds\t0 %s\n".format(gpreds.mkString(" ")))
-
-      extractSRLFeatures(datum, roles, senseDict, out, labelCorrect=true, prune=false, maxdist=1000,
-                         srlmode=1, sensemode=1, argfeats=true)
-
-      extractSyntacticFeatures(datum, out, labelHidden=true, mode=1)
-
-      extractConnectionFeatures(datum, out, labelHidden=true, gpreds=gpreds, abound=1000)
-
-        out.write("\n")
-      rout.write("\n")
-    }
-    out.close()
-    rout.close()
-  }
-
-  def extractSRLFeatures(datum: SRLDatum, roles: Array[String], senseDict: HashMap[String, Array[String]], out: FileWriter,
-                         labelCorrect: Boolean, prune: Boolean = true, maxdist: Int, srlmode: Int = 1, sensemode: Int = 1, argfeats: Boolean = false) = {
+  def extractSRLFeatures(datum: SRLDatum, dict: SRLDictionary, out: FileWriter,
+                         labelCorrect: Boolean, prune: Boolean = true, maxdist: Int, srlmode: Int = 1) = {
     val slen = datum.slen
     val tokens = Array(dummyToken) ++ datum.tokens ++ Array(dummyToken)
     for (i <- 1 to slen if datum.hasPred(i)) {
       val lemma = datum.lemma(i)
-//      val senseFeats = senseFeatures(i, tokens)
-      val senses = senseDict.getOrElse(lemma, Array[String](lemma + "_UNK"))
-      if (senseDict.contains(lemma)) {
+      val senseFeats = senseFeatures(i, tokens)
+      val senses = dict.senses(lemma)
+      if (dict.containsSense(lemma)) {
         var senseCount = 0
-        if (senseDict.contains(datum.lemmas(i-1))) {
+        if (dict.containsSense(datum.lemmas(i-1))) {
           for (sense <- senses) {
             val senseFeats = senseFeatures(i, tokens)
             val senseLabel = if (datum.hasSense(i, sense) && labelCorrect) "+" else ""
- //           out.write("sense(%d,%d)\t%ssense-%s\n".format(i, senseCount, senseLabel, senseFeats.map("%s-%s".format(sense, _)).mkString(" ")))
-            out.write("sense(%d,%d)\t%s%s\n".format(i, senseCount, senseLabel, senseFeats.mkString(" ")))
+            out.write("sense(%d,%d)\t%ssense-%s\n".format(i, senseCount, senseLabel, senseFeats.map("%s-%s".format(sense, _)).mkString(" ")))
             senseCount += 1
           }
         }
@@ -62,65 +29,38 @@ trait SRLFeatures {
           val senseFeats = senseFeatures(i, tokens)
           val sense = senses(0)
           val senseLabel = if (labelCorrect) "+" else ""
-//          out.write("sense(%d,0)\t%ssense-%s\n".format(i, senseLabel, senseFeats.map("%s-%s".format(sense, _)).mkString(" ")))
-          out.write("sense(%d,0)\t%s%s\n".format(i, senseLabel, senseFeats.mkString(" ")))
+          out.write("sense(%d,0)\t%ssense-%s\n".format(i, senseLabel, senseFeats.map("%s-%s".format(sense, _)).mkString(" ")))
         }
       }
       // Argument Features
-      if (srlmode > 0) {
-        val abound = if (prune) maxdist else slen
-        for (j <- 1 to slen if Math.abs(i-j) <= abound) {
+      val roles = dict.roles.toArray
+      val abound = if (prune) maxdist else slen
+        for (j <- 1 to slen if abs(i-j) <= abound) {
           val afeatures = argumentFeatures(j, i, tokens, srlmode)
           val alabel = if (datum.hasArg(i, j) && labelCorrect) "+" else ""
           out.write("hasArg(%d,%d)\t%s%s\n".format(i, j, alabel, afeatures.mkString(" ")))
           var found = false
           for (k <- 0 until roles.size) {
-            val afeatures = argumentFeatures(j, i, tokens, srlmode)
             val builder = new StringBuilder()
-//            for (f <- afeatures) builder.append(" " + roles(k) + "_" + f)
-            for (f <- afeatures) builder.append(" " + f)
-
-            if (datum.hasArgLabel(i, j, roles(k)) && labelCorrect) {
-              out.write("hasLabel(%d,%d,%d)\t+%s\n".format(i, j, k, builder.toString.trim))
-              //						println("hasLabel(%d,%d,%d)\t+%s".format(i, j, k, afeatures.map("%s-%s".format(roles(k), _)).mkString(" ")))
+            for (f <- afeatures) builder.append(" " + roles(k) + "_" + f)
+            if (datum.hasArgLabel(i, j, roles(k))) {
+              out.write("hasLabel(%d,%d,%d)\t%s%s\n".format(i, j, k, if (labelCorrect) "+" else "", builder.toString.trim))
+              builder.clear
               found = true
             }
             else {
               out.write("hasLabel(%d,%d,%d)\t%s\n".format(i, j, k, builder.toString.trim))
             }
           }
-          // Add in a dummy label in case we have pruned away this arg's real label
-/*
           if (!found && alabel == "+" && labelCorrect) {
-            out.write("hasLabel(%d,%d,%d)\t+A-DUMMY-F\n".format(i, j, roles.size))
+            out.write("hasLabel(%d,%d,%d)\t+0\n".format(i, j, roles.size))
           }
           else {
-            out.write("hasLabel(%d,%d,%d)\tA-DUMMY-F\n".format(i, j, roles.size))
+            out.write("hasLabel(%d,%d,%d)\t0\n".format(i, j, roles.size))
           }
-          */
-          if (!found && alabel == "+" && labelCorrect) {
-            out.write("hasLabel(%d,%d,%d)\t+1\n".format(i, j, roles.size))
-          }
-          else {
-            out.write("hasLabel(%d,%d,%d)\t1\n".format(i, j, roles.size))
-          }
-
         }
       }
     }
-    /*
-    if (argfeats) {
-      for (i <- 1 to slen) {
-        var isArg = false
-        for (j <- 1 to slen) {
-          if (datum.hasArg(j,i)) isArg = true
-        }
-        val isArgLabel = if (isArg && labelCorrect) "+" else ""
-        out.write("isArg(%d)\t%s%s\n".format(i, isArgLabel, argFeatures(i, tokens).mkString(" ")))
-      }
-    }
-    */
-  }
 
 
 
@@ -153,208 +93,159 @@ trait SRLFeatures {
     }
   }
 
-  /*
-      println("Found datum:")
-      println(datum)
-      if (i % params.PRINT_INTERVAL == 0) System.err.println("  example %d...".format(i))
-      val slen = datum.slen
-      out.write("@slen\t%d\n".format(slen))
-      out.write("@words\t%s\n".format(datum.words.mkString(" ")))
-      out.write("@bigram\tfalse\n")
-      rout.write("@slen\t%d\n".format(slen))
-      rout.write("@words\t%s\n".format(datum.words.mkString(" ")))
-      rout.write("@bigram\tfalse\n")
-      datum.words.zipWithIndex.foreach { case(word, widx) =>
-        val feats = unigramFeatures(datum, widx+1, useMorph=false, useSyntax=false)
-        val tags = if (dict.contains(word)) dict.tags(word).toArray else alltags
-        tags.zipWithIndex.foreach { case(tag, tidx) =>
-          //				dict.getOrElse(word, alltags).toArray.zipWithIndex.foreach { case(tag, tidx) =>
-          val builder = new StringBuilder()
-          for (f <- feats) builder.append(" " + tag + "_" + f)
-          val isCorrect = correct(datum, widx+1, params.MODE) == tag //datum.postag(widx+1) == tag
-          val ll = if (useIndices) tidx else tag
-          out.write("ulabel(%d,%s)\t%s%s\n".format(widx+1, tag, if (isCorrect) "+" else "", builder.toString().trim))
-          rout.write("ulabel(%d,%d)\t%s%s\n".format(widx+1, tidx, if (isCorrect) "+" else "", builder.toString().trim))
-        }
-      }
-      out.write("\n")
-      rout.write("\n")
-    }
-    out.close()
-    rout.close()
-  }
-  */
+
 
   def allcaps(str: String): Boolean = {
-		return str.toUpperCase == str
-	}
-	
-	def capitalized(str: String): Boolean = {
-		if (str.size == 0) return true
-		return (str.substring(0, 1).toUpperCase == str.substring(0, 1))
-	}
+    return str.toUpperCase == str
+  }
 
-		def senseFeatures(idx: Int, tokens: Array[SRLToken], window: Int = 2): Array[String] = {
-      val numfeats = Random.nextInt(20)+1
-      val pvsize = 1000
-      Seq.fill(numfeats)(Random.nextInt(pvsize-1)+1).map(_.toString).toArray
+  def capitalized(str: String): Boolean = {
+    if (str.size == 0) return true
+    return (str.substring(0, 1).toUpperCase == str.substring(0, 1))
+  }
+
+  def senseFeatures(idx: Int, tokens: Array[SRLToken], window: Int = 2): Array[String] = {
+
+    val feats = new ArrayBuffer[String]
+    val token = tokens(idx)
+    val slen = tokens.size
+    val cap = if (capitalized(token.word)) "UC" else "LC"
+    feats += "[sense-bias]"
+    feats += "[sense-word]-%s".format(token.word)
+    feats += "[sense-lemma]-%s".format(token.lemma)
+    feats += "[sense-pos]-%s".format(token.pos)
+    feats += "[sense-word-pos]-%s-%s".format(token.word, token.pos)
+    feats += "[sense-cap]-%s".format(cap)
+
+    /*
+    for (t <- tokens) {
+      feats += "[sense-unigram]-%s-%s".format(token.lemma, t.word)
+    }
+    feats += "[morph-string]-%s".format(token.morph)
+    for (f <- token.morph.split("\\|")) {
+      feats += "[morph-feat]-%s".format(f)
     }
 
-  /*
-			val feats = new ArrayBuffer[String]
-			val token = tokens(idx)
-			val slen = tokens.size
-			val cap = if (capitalized(token.word)) "UC" else "LC"
-			feats += "[sense-bias]"
-			feats += "[sense-word]-%s".format(token.word)
-			feats += "[sense-lemma]-%s".format(token.lemma)
-			feats += "[sense-pos]-%s".format(token.pos)
-			feats += "[sense-word-pos]-%s-%s".format(token.word, token.pos)
-			feats += "[sense-cap]-%s".format(cap)
+    for (offset <- idx-window to idx+window if (offset > 0 && offset < slen && offset != idx)) {
+      val otoken = tokens(offset)
+      val ocap = if (capitalized(otoken.word)) "UC" else "LC"
+      feats += "[offset-%d-word]-%s".format(offset, otoken.word)
+      feats += "[offset-%d-tag]-%s".format(offset, otoken.pos)
+      feats += "[offset-%d-word-tag]-%s-%s".format(offset, otoken.word, otoken.pos)
+      feats += "[offset-%d-cap]-%s".format(offset, ocap)
+      feats += "[offset-%d-pos-opos]-%s-%s".format(offset, token.pos, otoken.pos)
+      feats += "[offset-%d-word-opos]-%s-%s".format(offset, token.word, otoken.pos)
+      feats += "[offset-%d-word-oword]-%s-%s".format(offset, token.word, otoken.word)
+      feats += "[offset-%d-pos-opos]-%s-%s".format(offset, cap, ocap)
+    }
 
-			for (t <- tokens) {
-				feats += "[sense-unigram]-%s-%s".format(token.lemma, t.word)			
-			}
-
-			feats += "[morph-string]-%s".format(token.morph)
-			for (f <- token.morph.split("\\|")) {
-				feats += "[morph-feat]-%s".format(f)				
-			}
-			
-			for (offset <- idx-window to idx+window if (offset > 0 && offset < slen && offset != idx)) {
-				val otoken = tokens(offset)
-				val ocap = if (capitalized(otoken.word)) "UC" else "LC"
-				feats += "[offset-%d-word]-%s".format(offset, otoken.word)
-				feats += "[offset-%d-tag]-%s".format(offset, otoken.pos)
-				feats += "[offset-%d-word-tag]-%s-%s".format(offset, otoken.word, otoken.pos)
-				feats += "[offset-%d-cap]-%s".format(offset, ocap)
-				feats += "[offset-%d-pos-opos]-%s-%s".format(offset, token.pos, otoken.pos)
-				feats += "[offset-%d-word-opos]-%s-%s".format(offset, token.word, otoken.pos)
-				feats += "[offset-%d-word-oword]-%s-%s".format(offset, token.word, otoken.word)
-				feats += "[offset-%d-pos-opos]-%s-%s".format(offset, cap, ocap)
-			}
-			
-			return feats.map(_.replaceAll("=", "-")).toArray
-		}
-               */
-
-
-
-	def argumentFeatures(aidx: Int, pidx: Int, tokens: Array[SRLToken], mode: Int = 2, morph: Boolean = false): Array[String] = {
-    val numfeats = Random.nextInt(20)+1
-    val pvsize = 1000
-    Seq.fill(numfeats)(Random.nextInt(pvsize-1)+1).map(_.toString).toArray
+*/
+    return feats.map(_.replaceAll("=", "-")).toArray
   }
-/*
-		val feats = new ArrayBuffer[String]
-		val pred = tokens(pidx)
-		val arg  = tokens(aidx)
-		val dist = Math.abs(aidx - pidx)
-		val dir  = if (aidx > pidx) "RIGHT" else if (aidx < pidx) "LEFT" else "SAME"
-		
-		//if (mode >= 0) 
-		feats += "ARG-BIAS"
-		if (mode >= 1) {
 
-			feats += "pred-%s-arg-%s".format(pred.word, arg.word)
-			feats += "predtag-%s-argtag-%s".format(pred.pos, arg.pos)
-			feats += "pred-%s-argtag-%s".format(pred.word, arg.pos)
-			feats += "predtag-%s-arg-%s".format(pred.pos, arg.word)
-			feats += "pred-%s-arg-%s-predtag-%s-argtag-%s".format(pred.word, arg.word, pred.pos, arg.pos)			
 
-		}
 
-		if (mode >= 2) {
-			feats += "predtag-%s-argtag-%s-%d".format(pred.pos, arg.pos, dist)
-			feats += "predtag-%s-argtag-%s-%s".format(pred.pos, arg.pos, dir)
-			feats += "predtag-%s-%d-%s".format(pred.pos, dist, dir)
-			feats += "argtag-%s-%d-%s".format(arg.pos, dist, dir)
 
-//			feats += "predtag-%s-argtag-%s-%d-%s".format(pred.pos, arg.pos, dist, dir)			
-		}
-		
-		if (mode >= 3) {
-			feats += "slen-%d".format(tokens.size)
-			feats += "dir-%s".format(dir)
-			feats += "dist-%d".format(dist)
-			feats += "dir-dist-%s-%d".format(dir, dist)
+  def argumentFeatures(aidx: Int, pidx: Int, tokens: Array[SRLToken], mode: Int = 2, morph: Boolean = false): Array[String] = {
+    val feats = new ArrayBuffer[String]
+    val pred = tokens(pidx)
+    val arg  = tokens(aidx)
+    val dist = Math.abs(aidx - pidx)
+    val dir  = if (aidx > pidx) "RIGHT" else if (aidx < pidx) "LEFT" else "SAME"
 
-			feats += "pred-%s".format(pred.word)
-			feats += "predtag-%s".format(pred.pos)
-			feats += "arg-%s".format(arg.word)
-			feats += "argtag-%s".format(arg.pos)
-		}
-		
-		if (mode >= 4) {
-			val m1s = pred.morph.split("\\|")
-			val m2s = arg.morph.split("\\|")
-			for (m1 <- m1s; m2 <- m2s) {
-				feats += "P-%sxA-%s".format(m1, m2)
-			}
-		}
-		
-		return feats.map(_.replaceAll("=", "-")).toArray
-	}
-	*/
-	
-	def dependencyFeatures(tokens: Array[SRLToken], cidx: Int, pidx: Int): Array[String] = {
-		val feats = new ArrayBuffer[String]
-		val parent = tokens(pidx)
-		val child  = tokens(cidx)
-		val dist = Math.abs(cidx - pidx)
-		val dir  = if (cidx > pidx) "R" else "L"
-		feats += "dp%s-%s".format(parent.word, child.word)
-		feats += "dp%s-%s".format(parent.pos, child.pos)
-		feats += "dp%s-%s".format(parent.word, child.pos)
-		feats += "dp%s-%s".format(parent.pos, child.word)
-		feats += "dp%s-%s-%s".format(parent.word, child.word, dir)
-		feats += "dp%s-%s-%s".format(parent.pos, child.pos, dir)
-		feats += "dp%s-%s-%s".format(parent.word, child.pos, dir)
-		feats += "dp%s-%s-%s".format(parent.pos, child.word, dir)
-		feats += "dp%d".format(dist)
-		feats += "dp%s".format(dir)
-		feats += "dp%s-%d".format(dir, dist)
-		return feats.map(_.replaceAll("=", "-")).toArray
-	}
+    //if (mode >= 0)
+    feats += "ARG-BIAS"
+    if (mode >= 1) {
 
-	def connectFeatures(tokens: Array[SRLToken], cidx: Int, pidx: Int): Array[String] = {
-    val numfeats = Random.nextInt(20)+1
-    val pvsize = 1000
-    Seq.fill(numfeats)(Random.nextInt(pvsize-1)+1).map(_.toString).toArray
+      feats += "pred-%s-arg-%s".format(pred.word, arg.word)
+      feats += "predtag-%s-argtag-%s".format(pred.pos, arg.pos)
+      feats += "pred-%s-argtag-%s".format(pred.word, arg.pos)
+      feats += "predtag-%s-arg-%s".format(pred.pos, arg.word)
+      feats += "pred-%s-arg-%s-predtag-%s-argtag-%s".format(pred.word, arg.word, pred.pos, arg.pos)
+
+    }
+
+    if (mode >= 2) {
+      feats += "predtag-%s-argtag-%s-%d".format(pred.pos, arg.pos, dist)
+      feats += "predtag-%s-argtag-%s-%s".format(pred.pos, arg.pos, dir)
+      feats += "predtag-%s-%d-%s".format(pred.pos, dist, dir)
+      feats += "argtag-%s-%d-%s".format(arg.pos, dist, dir)
+
+      //			feats += "predtag-%s-argtag-%s-%d-%s".format(pred.pos, arg.pos, dist, dir)
+    }
+
+    if (mode >= 3) {
+      feats += "slen-%d".format(tokens.size)
+      feats += "dir-%s".format(dir)
+      feats += "dist-%d".format(dist)
+      feats += "dir-dist-%s-%d".format(dir, dist)
+
+      feats += "pred-%s".format(pred.word)
+      feats += "predtag-%s".format(pred.pos)
+      feats += "arg-%s".format(arg.word)
+      feats += "argtag-%s".format(arg.pos)
+    }
+
+    if (mode >= 4) {
+      val m1s = pred.morph.split("\\|")
+      val m2s = arg.morph.split("\\|")
+      for (m1 <- m1s; m2 <- m2s) {
+        feats += "P-%sxA-%s".format(m1, m2)
+      }
+    }
+
+    return feats.map(_.replaceAll("=", "-")).toArray
   }
-  /*
-		val feats = new ArrayBuffer[String]
-		val parent = tokens(pidx)
-		val child  = tokens(cidx)
-		val dist = Math.abs(cidx - pidx)
-		val dir  = if (cidx > pidx) "R" else "L"
-		feats += "sli"
-		feats += "sli-%s-%s-%s-%s".format(parent.word, child.word, parent.pos, child.pos)
-		feats += "sli-%s-%s".format(parent.word, child.word)
-		feats += "sli-%s-%s".format(parent.pos, child.pos)
-		feats += "sli-%s-%s".format(parent.word, child.pos)
-		feats += "sli-%s-%s".format(parent.pos, child.word)
-		feats += "sli-%s-%s-%s".format(parent.word, child.word, dir)
-		feats += "sli-%s-%s-%s".format(parent.pos, child.pos, dir)
-		feats += "sli-%s-%s-%s".format(parent.word, child.pos, dir)
-		feats += "sli-%s-%s-%s".format(parent.pos, child.word, dir)
-		feats += "sli-%s-%s-%d".format(parent.word, child.pos, dist)
-		feats += "sli-%s-%s-%d".format(parent.pos, child.word, dist)
-		feats += "sli-%s-%s-%d".format(parent.pos, child.pos, dist)
-		feats += "sli-%s-%s-%d-%s".format(parent.pos, child.pos, dist, dir)
-		feats += "sli-%d".format(dist)
-		feats += "sli-%s".format(dir)
-		feats += "sli%s-%d".format(dir, dist)	
-		return feats.map(_.replaceAll("=", "-")).toArray
-		} */
+
+
+  def dependencyFeatures(tokens: Array[SRLToken], cidx: Int, pidx: Int): Array[String] = {
+    val feats = new ArrayBuffer[String]
+    val parent = tokens(pidx)
+    val child  = tokens(cidx)
+    val dist = Math.abs(cidx - pidx)
+    val dir  = if (cidx > pidx) "R" else "L"
+    feats += "dp%s-%s".format(parent.word, child.word)
+    feats += "dp%s-%s".format(parent.pos, child.pos)
+    feats += "dp%s-%s".format(parent.word, child.pos)
+    feats += "dp%s-%s".format(parent.pos, child.word)
+    feats += "dp%s-%s-%s".format(parent.word, child.word, dir)
+    feats += "dp%s-%s-%s".format(parent.pos, child.pos, dir)
+    feats += "dp%s-%s-%s".format(parent.word, child.pos, dir)
+    feats += "dp%s-%s-%s".format(parent.pos, child.word, dir)
+    feats += "dp%d".format(dist)
+    feats += "dp%s".format(dir)
+    feats += "dp%s-%d".format(dir, dist)
+    return feats.map(_.replaceAll("=", "-")).toArray
+  }
+
+  def connectFeatures(tokens: Array[SRLToken], cidx: Int, pidx: Int): Array[String] = {
+    val feats = new ArrayBuffer[String]
+    val parent = tokens(pidx)
+    val child  = tokens(cidx)
+    val dist = Math.abs(cidx - pidx)
+    val dir  = if (cidx > pidx) "R" else "L"
+    feats += "sli"
+    feats += "sli-%s-%s-%s-%s".format(parent.word, child.word, parent.pos, child.pos)
+    feats += "sli-%s-%s".format(parent.word, child.word)
+    feats += "sli-%s-%s".format(parent.pos, child.pos)
+    feats += "sli-%s-%s".format(parent.word, child.pos)
+    feats += "sli-%s-%s".format(parent.pos, child.word)
+    feats += "sli-%s-%s-%s".format(parent.word, child.word, dir)
+    feats += "sli-%s-%s-%s".format(parent.pos, child.pos, dir)
+    feats += "sli-%s-%s-%s".format(parent.word, child.pos, dir)
+    feats += "sli-%s-%s-%s".format(parent.pos, child.word, dir)
+    feats += "sli-%s-%s-%d".format(parent.word, child.pos, dist)
+    feats += "sli-%s-%s-%d".format(parent.pos, child.word, dist)
+    feats += "sli-%s-%s-%d".format(parent.pos, child.pos, dist)
+    feats += "sli-%s-%s-%d-%s".format(parent.pos, child.pos, dist, dir)
+    feats += "sli-%d".format(dist)
+    feats += "sli-%s".format(dir)
+    feats += "sli%s-%d".format(dir, dist)
+    return feats.map(_.replaceAll("=", "-")).toArray
+  }
 
   def morphDependency(otokens: Array[SRLToken], ohead: Int, odep: Int, morph: Boolean = true): Array[String] = {
-    val numfeats = Random.nextInt(20)+1
-    val pvsize = 1000
-    Seq.fill(numfeats)(Random.nextInt(pvsize-1)+1).map(_.toString).toArray
-  }
 
-  /*
     val feats = new ArrayBuffer[String]
 
     val stoken = new SRLToken("LEFFT_W", "LEFT_L", "LEFT_P", "LEFT_CP")
@@ -431,7 +322,7 @@ trait SRLFeatures {
 
     return feats.map(_.replaceAll("=", "-")).toArray
   }
-  */
+
 }
 
 
@@ -462,6 +353,83 @@ trait SRLFeatures {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+    println("Found datum:")
+    println(datum)
+    if (i % params.PRINT_INTERVAL == 0) System.err.println("  example %d...".format(i))
+    val slen = datum.slen
+    out.write("@slen\t%d\n".format(slen))
+    out.write("@words\t%s\n".format(datum.words.mkString(" ")))
+    out.write("@bigram\tfalse\n")
+    rout.write("@slen\t%d\n".format(slen))
+    rout.write("@words\t%s\n".format(datum.words.mkString(" ")))
+    rout.write("@bigram\tfalse\n")
+    datum.words.zipWithIndex.foreach { case(word, widx) =>
+      val feats = unigramFeatures(datum, widx+1, useMorph=false, useSyntax=false)
+      val tags = if (dict.contains(word)) dict.tags(word).toArray else alltags
+      tags.zipWithIndex.foreach { case(tag, tidx) =>
+        //				dict.getOrElse(word, alltags).toArray.zipWithIndex.foreach { case(tag, tidx) =>
+        val builder = new StringBuilder()
+        for (f <- feats) builder.append(" " + tag + "_" + f)
+        val isCorrect = correct(datum, widx+1, params.MODE) == tag //datum.postag(widx+1) == tag
+        val ll = if (useIndices) tidx else tag
+        out.write("ulabel(%d,%s)\t%s%s\n".format(widx+1, tag, if (isCorrect) "+" else "", builder.toString().trim))
+        rout.write("ulabel(%d,%d)\t%s%s\n".format(widx+1, tidx, if (isCorrect) "+" else "", builder.toString().trim))
+      }
+    }
+    out.write("\n")
+    rout.write("\n")
+  }
+  out.close()
+  rout.close()
+}
+*/
+
+
+/*
+  def extractFeatures(trainFile: String, trainFeatureFile: String, roles: Array[String], senseDict: HashMap[String, Array[String]], params: SRLParams) = {
+    val useIndices = false
+    val in = trainFile
+    val out = new FileWriter(trainFeatureFile)
+    val rout = new FileWriter(trainFeatureFile + ".bpdp")
+    val util = new ChunkReader(in)
+    util.zipWithIndex.foreach { case(chunk, i) =>
+      val datum = SRLDatum.constructFromCoNLL(chunk.split("\n"))
+      if (i % params.PRINT_INTERVAL == 0) System.err.println("  example %d...".format(i))
+      val slen = datum.slen
+      val gpreds = datum.predicates
+      out.write("@slen\t%d\n".format(slen))
+      out.write("@maxdist\t%d\n".format(1000))
+      out.write("@roles\t%s\n".format(roles.mkString(" ") + " A-DUMMY"))
+      out.write("@gpreds\t0 %s\n".format(gpreds.mkString(" ")))
+
+      extractSRLFeatures(datum, roles, senseDict, out, labelCorrect=true, prune=false, maxdist=1000,
+                         srlmode=1, sensemode=1, argfeats=true)
+
+      extractSyntacticFeatures(datum, out, labelHidden=true, mode=1)
+
+      extractConnectionFeatures(datum, out, labelHidden=true, gpreds=gpreds, abound=1000)
+
+        out.write("\n")
+      rout.write("\n")
+    }
+    out.close()
+    rout.close()
+  }
+*/
 
 
 /*
@@ -678,7 +646,7 @@ import java.io._
 
 import scala.collection.mutable.{ArrayBuffer, HashMap, HashSet}
 import narad.util.ArgParser
-import narad.io.reader.SRLReader
+import narad.io.util.SRLReader
 
 object SRLFeaturizer {
 	val dummyToken = SRLToken("ROOT", "ROOT_LEMMA", "ROOT_POS", "ROOT_CPOS")
@@ -1053,7 +1021,7 @@ count += 1
 // a single index is valid for a sentence, facidx in bpdp does not update
 // the list of gpreds for that example.  The dummy potential is used in
 // situations where heavy pruning removes all other potentials and would
-// otherwise crash the reader.
+// otherwise crash the util.
 
 
 /*

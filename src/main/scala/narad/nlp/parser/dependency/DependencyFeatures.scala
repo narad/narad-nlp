@@ -4,6 +4,7 @@ import scala.collection.mutable.ArrayBuffer
 import narad.io.conll._
 import java.io.FileWriter
 import narad.nlp.ling.Word
+import narad.bp.util.StringFeature
 
 trait DependencyParseFeatures {
 	
@@ -284,6 +285,10 @@ trait DependencyParseFeatures {
       feats += "[hword-%d-dword-%d]-%s-%s".format(i, j, hword.substring(-i), dword.substring(-j))
     }
     return feats.toArray
+  }
+
+  def groupedWordLevelDependencyFeatures(words: Array[String], ohead: Int, odep: Int): Array[StringFeature] = {
+    wordLevelDependencyFeatures(words, ohead, odep).map(f => StringFeature(f, 1.0, 1))
   }
 }
 

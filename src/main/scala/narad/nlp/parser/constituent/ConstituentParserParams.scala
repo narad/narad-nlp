@@ -13,12 +13,13 @@ import narad.bp.optimize.OptimizerOptions
  */
 class ConstituentParserParams(args: Array[String]) extends ArgParser(args) with ModelOptions with OptimizerOptions {
 
-    def ORDER = getString("--order", "LABEL")
+    def MODEL = getString("--model", "LABEL")
     def FEATURE_WINDOW = getInt("--feature.window", 3)
     def MODE = getString("--mode", "FINE")
     def BRACK_NAME = getString("--brack.name", "brack")
-    def LABEL_NAME = getString("--label.name", "label")
+    def BRACK_LABEL_NAME = getString("--brack.label.name", "spanLabel")
     def UNARY_NAME = getString("--unary.name", "unary")
+    def UNARY_LABEL_NAME = getString("--unary.label.name", "unaryLabel")
 
     def PRINT_INTERVAL = getInt("--print.interval", 100)
     def TRAIN_FIDX_FILE = getString("--train.fidx.file", "train.fidx")
@@ -27,6 +28,11 @@ class ConstituentParserParams(args: Array[String]) extends ArgParser(args) with 
     def TEST_FEATURE_FILE = getString("--test.feature.file", "test.feats")
     def TRAIN_FILE = getString("--train.file")
     def TEST_FILE  = getString("--test.file")
+    def OUTPUT_FILE = getString("--output.file")
+
+    def TRAIN = getBoolean("--train")
+    def TEST  = getBoolean("--test")
+    def EXTRACT_FEATURES = getBoolean("--extract.features")
 
     def VARIANCE = getDouble("--variance", 1.0)
     def RATE = getDouble("--rate", .01)
@@ -37,11 +43,17 @@ class ConstituentParserParams(args: Array[String]) extends ArgParser(args) with 
     def INIT_FILE = getString("--init.file")
     def BATCH_SIZE = getInt("--batch.size", 1)
     def AVERAGE_LAST = getBoolean("--average.last", false)
+    def TIME = getBoolean("--time", false)
 
     def DAMP_INIT = getDouble("--damp.init", 1.0)
     def DAMP_RATE = getDouble("--damp.rate", 0.01)
     def DIFF_THRESHOLD = getDouble("--diff.threshold", 0.001)
     def INFERENCE_ITERATIONS = getInt("--inference.iterations", 10)
     def VERBOSE = getBoolean("--verbose", false)
+
+  def GROUP1_REG = getDouble("--group.reg.1", 1.0)
+  def GROUP2_REG = getDouble("--group.reg.2", 1.0)
+  def GROUP3_REG = getDouble("--group.reg.3", 1.0)
+
 
 }

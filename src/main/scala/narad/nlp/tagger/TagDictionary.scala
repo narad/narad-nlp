@@ -1,7 +1,46 @@
 package narad.nlp.tagger
 import java.io.{File, FileWriter}
 import scala.collection.mutable.{HashMap, HashSet}
-import narad.io.conll.CoNLLReader
+import narad.io.conll.{CoNLLDatum, CoNLLReader}
+
+class MultiTagDictionary extends HashMap[String, TagDictionary] {
+
+  def add(w: String, tag: String, attribute: String) {
+    if (!this.contains(attribute)) this(attribute) = new TagDictionary
+    this(attribute).add(w, tag)
+  }
+
+  def tagsOfAttribute(w: String, attribute: String): Array[String] = {
+    if (contains(attribute) && this(attribute).contains(w)) this(attribute).tags(w).toArray else Array()
+  }
+
+  def tagsOfAttributeOrAll(w: String, attribute: String): Array[String] = {
+    if (contains(attribute) && this(attribute).contains(w))
+      this(attribute).tags(w).toArray
+    else
+      tagsOfAttribute(attribute)
+  }
+
+  def tagsOfAttribute(attribute: String): Array[String] = {
+    if (contains(attribute)) this(attribute).all else Array()
+  }
+
+  def toFile(filename: String) = {
+    for (attr <- keys) this(attr).toFile(filename + "." + attr)
+  }
+}
+
+object MultiTagDictionary {
+//  val ATTRIBUTES = Array("CASE", "COARSE", "FINE")
+
+  def construct(data: Iterable[CoNLLDatum], attributes: Array[String]): MultiTagDictionary = {
+    val mdict = new MultiTagDictionary
+    for (attr <- attributes) mdict(attr) = TagDictionary.construct(data, attr)
+    mdict
+  }
+}
+
+
 
 class TagDictionary extends HashMap[String, HashMap[String, Int]]{
 //	val hash = new HashMap[String, HashMap[String, Int]]
@@ -60,16 +99,16 @@ class TagDictionary extends HashMap[String, HashMap[String, Int]]{
 
 object TagDictionary {
 
-	def construct(filename: String, mode: String = "FINE"): TagDictionary = {
+	def construct(data: Iterable[CoNLLDatum], mode: String = "FINE"): TagDictionary = {
 		val dictionary = new TagDictionary
-    val reader = new CoNLLReader(filename)
-    for (datum <- reader) {
+//    val util = new CoNLLReader(filename)
+    for (datum <- data) {
       for (i <- 1 to datum.slen) {
         mode match {
           case "COARSE" => dictionary.add(datum.word(i), datum.cpostag(i))
           case "FINE"   => dictionary.add(datum.word(i), datum.postag(i))
           case "CASE"   => dictionary.add(datum.word(i), datum.mcase(i))
-//          case "PERSON" => dictionary.add(datum.word(i), datum.person(i))
+          case "PERSON" => dictionary.add(datum.word(i), datum.mperson(i))
           case "GENDER" => dictionary.add(datum.word(i), datum.mgender(i))
           case "NUMBER" => dictionary.add(datum.word(i), datum.mnumber(i))
           case "CASE+GENDER+NUMBER" => dictionary.add(datum.word(i),
@@ -77,39 +116,41 @@ object TagDictionary {
         }
       }
     }
+    return dictionary
+  }
 
-		for (line <- io.Source.fromFile(filename).getLines()) {
-			val cols = line.split("\t")
-			if (cols.size > 3 && mode == "COARSE") {
-				val word = cols(1)
-				dictionary.add(word, cols(3))
-			}
-			if (cols.size > 4 && mode == "FINE") {
-				val word = cols(1)
-				dictionary.add(word, cols(4))
-			}
-			if (cols.size > 4 && mode == "CONCAT") {
-				val word = cols(1)
-				assert(cols(3) != "" && cols(4) != "", "Line has a POS error: %s".format(line))
-				dictionary.add(word, cols(3) + "^" + cols(4))
-			}
-		}
-		return dictionary
-	}
-
-	def fromFile(filename: String): TagDictionary = {
-		val dictionary = new TagDictionary
-		for (line <- io.Source.fromFile(filename).getLines()) {
-			val cols = line.split("\t")
-			for (i <- 1 until cols.size) {
-				dictionary.add(cols(0), cols(i))
-			}
-		}
-		return dictionary
-	}
+  def fromFile(filename: String): TagDictionary = {
+    val dictionary = new TagDictionary
+    for (line <- io.Source.fromFile(filename).getLines()) {
+      val cols = line.split("\t")
+      for (i <- 1 until cols.size) {
+        dictionary.add(cols(0), cols(i))
+      }
+    }
+    return dictionary
+  }
 }
 
 
+
+/*
+    for (line <- io.Source.fromFile(filename).getLines()) {
+      val cols = line.split("\t")
+      if (cols.size > 3 && mode == "COARSE") {
+        val word = cols(1)
+        dictionary.add(word, cols(3))
+      }
+      if (cols.size > 4 && mode == "FINE") {
+        val word = cols(1)
+        dictionary.add(word, cols(4))
+      }
+      if (cols.size > 4 && mode == "CONCAT") {
+        val word = cols(1)
+        assert(cols(3) != "" && cols(4) != "", "Line has a POS error: %s".format(line))
+        dictionary.add(word, cols(3) + "^" + cols(4))
+      }
+    }
+    */
 
 
 

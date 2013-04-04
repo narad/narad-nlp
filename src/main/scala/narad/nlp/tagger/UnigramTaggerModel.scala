@@ -6,19 +6,137 @@ import narad.bp.util._
 import narad.io.conll._
 import java.io._
 import collection.mutable.{HashMap, ArrayBuffer, Map}
+import narad.bp.util.index.Index
 
-class UnigramTagger(params: TaggerParams) extends Tagger(params) with UnigramTaggerFeatures 
+class UnigramTaggerModel(params: TaggerParams) extends TaggerModel(params) with UnigramTaggerFeatures with UpgradeableTo[ChainTaggerModelInstance] {
+  val LABEL_PATTERN  = """ulabel\(([0-9]+),(.+)\)""".r
+
+  def upgrade(ex: ModelInstance, dict: Index[String]): ChainTaggerModelInstance = {
+    val attrs = ex.ex.getAttributes
+    val slen  = attrs.getOrElse("slen", "-1").toInt
+    val words = attrs.getOrElse("words", "").split(" ")
+    val tags  = attrs.getOrElse("tags", "").split(" ")
+
+    val margThreshold = 0.2
+
+    val beliefs = ex.marginals
+    val groups = beliefs.filter(_.name.startsWith("ulabel")).groupBy{pot =>
+      val labelPattern(widx, lidx) = pot.name
+      widx
+    }
+    val fg = ex.graph.toBuilder
+    for (i <- 1 to slen) {
+//      if (upot.value > margThreshold) {
+        // get features for factor
+        // add binary factor
+//      }
+//      fg.addTable2Factor(varName1, varName2, arity1, arity2, "bigramFac(%s,%s)".format(v1, v2), bgroup._2)
+    }
+    return new ChainTaggerModelInstance(fg.toFactorGraph, ex.ex)
+  }
+}
 
 trait UnigramTaggerFeatures extends TaggerFeatures {
 	
+	override def extractFeatures(trainFile: String, trainFeatureFile: String, dict: TagDictionary, index: Index[String], params: TaggerParams) = {
+		val useIndices = false
+		val in = trainFile
+		val alltags = dict.all.toArray
+		val out = new FileWriter(trainFeatureFile)
+    val reader = new CoNLLReader(in)
+    var startTime = System.currentTimeMillis()
+    val batchSize = params.FEATURE_BATCH_SIZE
+    System.err.println("Feat batch size = " + batchSize)
+    reader.zipWithIndex.grouped(batchSize).foreach { batch =>
+      val batchArray = batch.toArray
+      val pexs = new Array[PotentialExample](batchArray.size)
+      batchArray.par.map { case(datum, i) =>
+        if (i % params.PRINT_INTERVAL == 0) System.err.println("  example %d...[index contains %d elements].".format(i, index.size))
+        pexs(i % batchSize) = getExample(datum, alltags, index, params)
+      }
+      pexs.foreach { pex =>
+        pex.writeToFile(out)
+      }
+    }
+    out.close()
+    System.err.print("Feature Extraction Finished in %fs.".format((System.currentTimeMillis() - startTime) / 1000.0))
+  }
+
+  def getExample(datum: CoNLLDatum, tags: Array[String], index: Index[String], params: TaggerParams): PotentialExample = {
+    val slen = datum.slen
+    val attributes  = Map[String, String]()
+    val potentials = new ArrayBuffer[Potential]
+    val featureMap = new HashMap[String, Array[Feature]]
+    attributes("slen") = datum.slen.toString
+    attributes("words") = datum.words.mkString(" ")
+    attributes("tags") = tags.mkString(" ")
+    attributes("bigram") = "false"
+    datum.words.zipWithIndex.foreach { case(word, widx) =>
+      val goldtag = datum.postag(widx+1)
+      val feats = unigramFeatures(datum, widx+1, params)
+      tags.zipWithIndex.foreach { case(tag, tidx) =>
+        val potname = "ulabel(%d,%d)".format(widx+1, tidx)
+        potentials += new Potential(1.0, potname, tag == goldtag)
+        featureMap(potname) = feats.map(f => new Feature(index.index(tag + "_" + f), 1.0, 0))
+      }
+    }
+    new PotentialExample(attributes, potentials, featureMap)
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+    util.zipWithIndex.foreach { case(datum, i) =>
+      if (i % params.PRINT_INTERVAL == 0) System.err.println("  example %d...[index contains %d elements].".format(i, index.size))
+      val pex = getFeatures(datum, alltags, index)
+      pex.writeToFile(out)
+      out.write("\n")
+    }
+*/
+
+
+/*
+
+trait UnigramTaggerFeatures extends TaggerFeatures {
+
 	override def extractFeatures(trainFile: String, trainFeatureFile: String, dict: TagDictionary, params: TaggerParams) = {
 		val useIndices = false
 		val in = trainFile
 		val alltags = dict.all.toArray
 		val out = new FileWriter(trainFeatureFile)
 		val rout = new FileWriter(trainFeatureFile + ".bpdp")
-    val reader = new CoNLLReader(in)
-		reader.zipWithIndex.foreach { case(datum, i) =>
+    val util = new CoNLLReader(in)
+		util.zipWithIndex.foreach { case(datum, i) =>
 			println("Found datum:")
 			println(datum)
 			if (i % params.PRINT_INTERVAL == 0) System.err.println("  example %d...".format(i))
@@ -28,11 +146,11 @@ trait UnigramTaggerFeatures extends TaggerFeatures {
 			out.write("@bigram\tfalse\n")
 			rout.write("@slen\t%d\n".format(slen))
 			rout.write("@words\t%s\n".format(datum.words.mkString(" ")))
-			rout.write("@bigram\tfalse\n")			
+			rout.write("@bigram\tfalse\n")
 			datum.words.zipWithIndex.foreach { case(word, widx) =>
 				val feats = unigramFeatures(datum, widx+1, useMorph=false, useSyntax=false)
 				val tags = if (dict.contains(word)) dict.tags(word).toArray else alltags
-				tags.zipWithIndex.foreach { case(tag, tidx) => 
+				tags.zipWithIndex.foreach { case(tag, tidx) =>
 //				dict.getOrElse(word, alltags).toArray.zipWithIndex.foreach { case(tag, tidx) =>
 					val builder = new StringBuilder()
 					for (f <- feats) builder.append(" " + tag + "_" + f)
@@ -49,8 +167,7 @@ trait UnigramTaggerFeatures extends TaggerFeatures {
 		rout.close()
 	}
 }
-
-
+ */
 
 
 
@@ -93,7 +210,7 @@ CoNLLReader.iterator(in).zipWithIndex.foreach { case(datum, i) =>
 
 def main(args: Array[String]) = {
 	val params = new TaggerParams(args)
-	val tagger = new UnigramTagger(params)
+	val tagger = new UnigramTaggerModel(params)
 	tagger.extractFeatures(params, Value("Train")
 	tagger.extractFeatures(params, Value("Test"))
 	tagger.train

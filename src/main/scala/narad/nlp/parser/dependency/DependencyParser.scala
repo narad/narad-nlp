@@ -2,7 +2,7 @@ package narad.nlp.parser.dependency
 
 import narad.io.conll.CoNLLReader
 import narad.util.ArgParser
-import narad.bp.optimize.{L1Regularizer, Optimizer}
+import narad.bp.optimize.{L2Regularizer, Optimizer}
 import narad.bp.util.{PotentialExample, PotentialReader}
 import narad.bp.structure._
 import narad.bp.inference.BeliefPropagation
@@ -29,14 +29,14 @@ object DependencyParser {
       parser.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, params)
     }
     else if (params.getBoolean("--train")) {
-      val optimizer = new Optimizer(parser) with L1Regularizer
-      val data = PotentialReader.read(params.TRAIN_FIDX_FILE).toArray
-      optimizer.train(data, params)
+      val optimizer = new Optimizer(parser, params) with L2Regularizer
+      val data = new PotentialReader(params.TRAIN_FIDX_FILE)
+      optimizer.train(data)
     }
     else if (params.getBoolean("--test")) {
-      val optimizer = new Optimizer(parser)
-      val data = PotentialReader.read(params.TEST_FIDX_FILE).toArray
-      optimizer.test(data, params)
+      val optimizer = new Optimizer(parser, params)
+      val data = new PotentialReader(params.TEST_FIDX_FILE)
+      optimizer.test(data)
     }
   }
 }
@@ -48,15 +48,19 @@ class ProjectiveDependencyParser(params: DependencyParserParams) extends FactorG
      val pots = ex.exponentiated(pv)
     System.err.println("%d pots found.".format(pots.size))
     val fg = new FactorGraphBuilder(pots)
-    val pothash = pots.groupBy { p => val linkPattern(start, end) = p.name; (start.toInt, end.toInt) }
     val slen = ex.attributes.getOrElse("slen", "-1").toInt
+    addDependencySyntax(fg, slen, pots)
+    return new DependencyParserModelInstance(fg.toFactorGraph, ex)
+  }
+
+  def addDependencySyntax(fg: FactorGraphBuilder, slen: Int, pots: Array[Potential]) = {
+    val pothash = pots.groupBy { p => val linkPattern(start, end) = p.name; (start.toInt, end.toInt) }
     for (dep <- 1 to slen; head <- 0 to slen if dep != head) {
       fg.addVariable("%s(%d,%d)".format("linkvar", head, dep), 2)
       fg.addUnaryFactor("linkvar(%d,%d)".format(head, dep), "link\\(%d,%d\\)".format(head, dep), pothash((head, dep))(0))
       // bpdp code kept a matrix for link vars, would have links[dep][head] = the variable
     }
     fg.addProjectiveTreeFactor(new Regex("linkvar\\("), "PTREE", slen)
-    return new DependencyParserModelInstance(fg.toFactorGraph, ex)
   }
 
   def decode(instance: ModelInstance) = {

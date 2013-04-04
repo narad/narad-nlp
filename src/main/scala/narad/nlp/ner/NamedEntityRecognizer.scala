@@ -1,7 +1,7 @@
 package narad.nlp.ner
 
 import narad.nlp.tagger.TagDictionary
-import narad.bp.optimize.{OptimizerOptions, L1Regularizer, Optimizer}
+import narad.bp.optimize.{OptimizerOptions, L2Regularizer, Optimizer}
 import narad.bp.util.PotentialReader
 import narad.util.ArgParser
 import narad.bp.structure.ModelOptions
@@ -31,14 +31,14 @@ object NamedEntityRecognizer {
       ner.extractFeatures(params.TEST_NER_FILE, params.TEST_SYNTAX_FILE, params.TEST_FEATURE_FILE, labels, 10, params)
     }
     else if (params.getBoolean("--train")) {
-      val optimizer = new Optimizer(ner) with L1Regularizer
-      val data = PotentialReader.read(params.TRAIN_FIDX_FILE).toArray
-      optimizer.train(data, params)
+      val optimizer = new Optimizer(ner, params) with L2Regularizer
+      val data = new PotentialReader(params.TRAIN_FIDX_FILE)
+      optimizer.train(data)
     }
     else if (params.getBoolean("--test")) {
-      val optimizer = new Optimizer(ner)
-      val data = PotentialReader.read(params.TEST_FIDX_FILE).toArray
-      optimizer.test(data, params)
+      val optimizer = new Optimizer(ner, params)
+      val data = new PotentialReader(params.TEST_FIDX_FILE)
+      optimizer.test(data)
     }
   }
 }
@@ -67,12 +67,18 @@ class NamedEntityParams(args: Array[String]) extends ArgParser(args) with ModelO
   def INIT_FILE = getString("--init.file")
   def BATCH_SIZE = getInt("--batch.size", 1)
   def AVERAGE_LAST = getBoolean("--average.last", false)
+  def TIME = getBoolean("--time", false)
 
   def DAMP_INIT = getDouble("--damp.init", 1.0)
   def DAMP_RATE = getDouble("--damp.rate", 0.01)
   def DIFF_THRESHOLD = getDouble("--diff.threshold", 0.001)
   def INFERENCE_ITERATIONS = getInt("--inference.iterations", 10)
   def VERBOSE = getBoolean("--verbose", false)
+
+  def GROUP1_REG = getDouble("--group.reg.1", 1.0)
+  def GROUP2_REG = getDouble("--group.reg.2", 1.0)
+  def GROUP3_REG = getDouble("--group.reg.3", 1.0)
+
 
 }
 

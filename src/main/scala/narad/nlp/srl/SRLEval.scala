@@ -2,7 +2,7 @@ package narad.nlp.srl
 import java.io.{File, PrintWriter}
 import java.text.DecimalFormat
 import narad.util.ArgParser
-import narad.io.reader.ZippedReader
+import narad.io.util.{ChunkReader, ZippedReader}
 import narad.bp.structure._
 import scala.collection.mutable.{ArrayBuffer, HashMap}
 
@@ -17,20 +17,25 @@ object SRLEval {
 		val oformat = options.getString("--output.format", "ISO-8859-1")
 		val outputFile = options.getString("--output.file", "srl.out")
 		val suffixFile = options.getString("--suffix.file", "srl.suffixes")
+    val trainFile  = options.getString("--train.file")
 		val threshold = options.getDouble("--decoding.threshold", 0.5)
-		val suffixes = io.Source.fromFile(suffixFile).getLines().toArray
-		val maxsuffix = suffixes(0)
+//		val suffixes = io.Source.fromFile(suffixFile).getLines().toArray
+//		val maxsuffix = suffixes(0)
+  val maxsuffix = "A0"
 		val maxmode = options.getString("--max.mode", "APPEND") // otherwise "SAME"
 
 		if (bpdp != null) {
+/*
 			val senseDict = new HashMap[String, Array[String]]
 			for (line <- io.Source.fromFile(dict).getLines()) {
 //			for (line <- io.Source.fromFile(new File(dict), iformat).getLines) {
 				val cols = line.split("\t"); senseDict(cols(0)) = cols(1).split(" ")
 			}
+*/
+       val dict = SRLDictionary.construct(trainFile)
 			var out = new java.io.PrintWriter(new File(outputFile), oformat);
 			var i = 1
-			for (datum <- convertBPDPtoScala(bpdp, senseDict, iformat, maxmode=maxmode, maxsense=maxsuffix, threshold=threshold)) {
+			for (datum <- convertBPDPtoScala(bpdp, dict, iformat, maxmode=maxmode, maxsense=maxsuffix, threshold=threshold)) {
 				out.println(datum)
 				out.println()
 				if (i % 10 == 0) System.err.println("Processing datum %d...".format(i))
@@ -101,7 +106,42 @@ object SRLEval {
 //		println("Empty Preds:   (%d / %d) = %s".format(emptyPreds, numPredicates, (emptyPreds.toDouble / numPredicates.toDouble)))
 	}
 
-	def convertBPDPtoScala(filename: String, dict: HashMap[String, Array[String]], iformat: String = "UTF-8", maxmode: String="APPEND", maxsense: String = "01", threshold: Double = 0.5): Array[SRLDatum] = {
+  val ATTRIBUTE_PATTERN = """@([^\t]+)\t *(.+)""".r
+  val POT_PATTERN  = """(.*)\t(.+)""".r
+
+  def convertBPDPtoScala(filename: String, dict: SRLDictionary, iformat: String = "UTF-8", maxmode: String="APPEND", maxsense: String = "01", threshold: Double = 0.5): Array[SRLDatum] = {
+    val reader = new ChunkReader(filename)
+    val datums = new ArrayBuffer[SRLDatum]()
+    reader.iterator.foreach { chunk =>
+      val pots = new ArrayBuffer[Potential]
+      val attributes = new HashMap[String, String]
+      for (line <- chunk.split("\n")) {
+        line match {
+          case ATTRIBUTE_PATTERN(attrName, attrStr) => {
+            attributes(attrName.trim) = attrStr.trim
+          }
+          case POT_PATTERN(potName, potWeight) => {
+            try {
+              pots += new Potential(potWeight.toDouble, potName.trim, false)
+            }
+            catch { case e: Exception => }
+          }
+        }
+      }
+      val words   = attributes.getOrElse("words", "").split(" ")
+      val tags    = attributes.getOrElse("tags", "").split(" ")
+      val lemmas  = attributes.getOrElse("lemmas", "").split(" ")
+      val roles   = attributes.getOrElse("roles", "").split(" ")
+      val gpreds  = attributes.getOrElse("gpreds", "").split(" ").map(_.toInt).filter(_>0)
+      gpreds.foreach { p =>
+        if (words.size > 0) pots += new Potential(1.0, "pred(%s)".format(p), false)
+      }
+      datums += constructFromBeliefs(pots.toArray, words, tags, lemmas, roles, dict, maxsense=maxsense, maxmode=maxmode, threshold=threshold)
+    }
+    datums.toArray
+  }
+
+/*
 		val data = new ArrayBuffer[SRLDatum]
 			val attrPattern = """@([^\t]+)\t *(.+)""".r
 			val potPattern  = """(.*) (.+)""".r
@@ -116,7 +156,7 @@ object SRLEval {
 						attributes(attrName.trim) = attrStr.trim
 					}
 					case potPattern(potName, potWeight) => {
-		//					println("POTS MATCH!")
+							println("POTS MATCH!")
 						try {
 							pots += new Potential(potWeight.toDouble, potName.trim, false)						
 						}
@@ -153,20 +193,18 @@ object SRLEval {
 			}
 		return data.toArray
 	}
+  */
 
 
 
 
 
 	def constructFromBeliefs(beliefs: Array[Potential], words: Array[String], tags: Array[String], lemmas: Array[String], roles: Array[String],
-			dict: HashMap[String, Array[String]], maxmode: String = "APPEND", maxsense: String = "01", threshold: Double = 0.5): SRLDatum = {
-
-//			for (b <- beliefs) { System.err.println(b) }
+			dict: SRLDictionary, maxmode: String = "APPEND", maxsense: String = "01", threshold: Double = 0.5): SRLDatum = {
 
 			val predPattern  = """pred\(([0-9]+)\)""".r
 			val argPattern   = """hasArg\(([0-9]+),([0-9]+)\)""".r
-			val argPartPattern = """.*([A-Za-z0-9]+)\-([A-Za-z0-9]+)$""".r
-			val oargPattern = """A([0-9]+)""".r
+
 
 			val slen = words.size
 			val heads = new Array[Int](slen)
@@ -179,10 +217,7 @@ object SRLEval {
 			beliefs.filter(b => b.name.contains("pred(")).foreach { p => 
 				val predPattern(pidx) = p.name
 				if (p.value > threshold) {
-					println(pidx)
-					println(preds.size)
-					println(lemmas.size)
-					preds(pidx.toInt-1) = sense(pidx.toInt, lemmas(pidx.toInt-1), sbeliefs, dict, maxsense=maxsense, maxmode=maxmode)				
+					preds(pidx.toInt-1) = sense(pidx.toInt, lemmas(pidx.toInt-1), sbeliefs, dict, maxsense=maxsense, maxmode=maxmode)
 				}
 				else {
 					preds(pidx.toInt-1) = "_"
@@ -261,11 +296,11 @@ object SRLEval {
 				val labelPattern(pi, ai, l) = b.name; l
 			}
 			assert(labels.size > 0, "No labels found in SRL Decoding for %d, %d.".format(aidx, pidx))
-//			println("labels = " + labels.mkString(", "))
-			labels.first
+			println("labels = " + labels.mkString(", "))
+			labels.head
 		}
 
-		def sense(pidx: Int, lemma: String, beliefs: Array[Potential], dict: HashMap[String, Array[String]], maxmode: String = "APPEND", maxsense: String = "01"): String = {
+		def sense(pidx: Int, lemma: String, beliefs: Array[Potential], dict: SRLDictionary, maxmode: String = "APPEND", maxsense: String = "01"): String = {
 			try {
 //				println("Pidx = " + pidx)
 //				println("Lemma = " + lemma)
@@ -273,13 +308,15 @@ object SRLEval {
 
 				val sensePattern = """sense\(([0-9]+),([0-9]+)\)""".r
 				val lbeliefs = beliefs.filter(_.name.contains("sense(%d,".format(pidx)))
+        println("LBELIEFS\n" + lbeliefs.mkString("\n"))
 				var maxv = lbeliefs.map(_.value).max
 				val sidxs = lbeliefs.filter(_.value == maxv).map { b =>
 					val sensePattern(pi, sidx) = b.name; sidx.toInt
 				}
+        System.err.println("Best sidx = " + sidxs.mkString(", "))
 				assert(sidxs.size > 0, "No sense label found in SRL Decoding for %d.".format(pidx))
-				val sense = if (dict.contains(lemma)) {
-					dict(lemma)(sidxs.first)
+				val sense = if (dict.containsSense(lemma)) {
+					dict.senses(lemma)(sidxs.head)
 				}
 				else if (maxmode == "APPEND") {
 					lemma + "." + maxsense
@@ -291,7 +328,7 @@ object SRLEval {
 			}
 			catch {
 				case e: Exception => {
-					System.err.println("Error decoding sense <%s> of pixd %d".format(lemma, pidx))
+					System.err.println("Error decoding sense <%s> of pixd %d: %s".format(lemma, pidx, e.getStackTrace().mkString("\n")))
 					return lemma + "." + maxsense
 				}
 			}

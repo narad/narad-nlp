@@ -3,22 +3,25 @@ package narad.nlp.tagger
 import narad.bp.structure._
 import narad.bp.optimize._
 import narad.bp.util._
+import narad.bp.util.index.Index
 import narad.io.conll._
 import narad.nlp.parser.dependency._
 import java.io._
 import scala.collection.mutable.ArrayBuffer
 
-class DependencyTagger(params: TaggerParams) extends Tagger(params) with DependencyTaggerFeatures {}
+class DependencyTagger(params: TaggerParams) extends TaggerModel(params) with DependencyTaggerFeatures {}
 
 trait DependencyTaggerFeatures extends TaggerFeatures with DependencyParseFeatures {
 	
-	override def extractFeatures(trainFile: String, trainFeatureFile: String, dict: TagDictionary, params: TaggerParams) = {
+	override def extractFeatures(trainFile: String, trainFeatureFile: String, dict: TagDictionary,
+                               index: Index[String], params: TaggerParams) = {
 		val useIndices = false
 		val in = trainFile
 		val alltags = dict.all.toArray
 		val out = new FileWriter(trainFeatureFile)
 		val rout = new FileWriter(trainFeatureFile + ".bpdp")
-		val oracle = params.FEATURE_MODE == "ORACLE"
+    val oracle = false
+
     val reader = new CoNLLReader(in)
 		reader.zipWithIndex.foreach { case(datum, i) =>
 			println("Found datum:")
@@ -36,7 +39,7 @@ trait DependencyTaggerFeatures extends TaggerFeatures with DependencyParseFeatur
       rout.write("@oracle\ttrue\n")
       if (oracle) rout.write("@heads\t%s\n".format(heads.map(_._1).mkString(" ")))
 			if (oracle) rout.write("@children\t%s\n".format(heads.map(_._2 + 1).mkString(" ")))
-			extractUnigramFeatures(datum, dict, out, rout)
+			extractUnigramFeatures(datum, dict, out, rout, params)
 			extractDependencyFeatures(datum, oracle, out, rout)
 			extractConnectionFeatures(datum, dict, oracle, out, rout)
 			out.write("\n")
@@ -46,9 +49,9 @@ trait DependencyTaggerFeatures extends TaggerFeatures with DependencyParseFeatur
 		rout.close()
 	}
 	
-	def extractUnigramFeatures(datum: CoNLLDatum, dict: TagDictionary, out1: FileWriter, out2: FileWriter) = {
+	def extractUnigramFeatures(datum: CoNLLDatum, dict: TagDictionary, out1: FileWriter, out2: FileWriter, params: TaggerParams) = {
 		datum.words.zipWithIndex.foreach { case(word, widx) =>
-			val feats = unigramFeatures(datum, widx+1, useMorph=false, useSyntax=false)
+			val feats = unigramFeatures(datum, widx+1, params)
 			val tags = if (dict.contains(word)) dict.tags(word).toArray else dict.all.toArray
 			tags.zipWithIndex.foreach { case(tag, tidx) => 
 				val builder = new StringBuilder()
@@ -99,17 +102,9 @@ trait DependencyTaggerFeatures extends TaggerFeatures with DependencyParseFeatur
         out1.write("blabel(%d,%d,%s,%s)\t%s%s\n".format(ii, jj, tt1, tt2,  if (correct) "+" else "", builder.toString().trim))
         out2.write("blabel(%d,%d,%d,%d)\t%s%s\n".format(ii, jj, ti1, ti2,  if (correct) "+" else "", builder.toString().trim))
 
-        //        out1.write("connect(%d,%d,%s,%s)\t%s%s\n".format(i, j, tag1, tag2, if (correct) "+" else "", builder.toString.trim))
-//				out2.write("connect(%d,%d,%d,%d)\t%s%s\n".format(i, j, t1, t2, if (correct) "+" else "", builder.toString.trim))
 			}
 		}
 	}
-	
-/*
-	def dependencyFeatures(datum: CoNLLDatum, head: Int, modifier: Int): Array[String] = {
-		return Array("LBIAS")
-	}
-*/
 	
 	def connectionFeatures(datum: CoNLLDatum, head: Int, dep: Int): Array[String] = {
 		val feats = new ArrayBuffer[String]

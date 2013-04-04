@@ -1,4 +1,4 @@
-package narad.io.reader
+package narad.io.util
 import narad.util.ArgParser
 import scala.collection.mutable.ArrayBuffer
 

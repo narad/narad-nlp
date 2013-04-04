@@ -1,4 +1,4 @@
-package narad.io.reader
+package narad.io.util
 
 /*
 import java.io._

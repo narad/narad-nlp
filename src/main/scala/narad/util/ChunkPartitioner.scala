@@ -1,6 +1,6 @@
 package narad.util
 import java.io.FileWriter
-import narad.io.reader.ChunkReader
+import narad.io.util.ChunkReader
 
 object ChunkPartitioner {
 	

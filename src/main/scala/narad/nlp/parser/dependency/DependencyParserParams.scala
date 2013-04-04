@@ -30,11 +30,16 @@ class DependencyParserParams(args: Array[String]) extends ArgParser(args) with M
   def INIT_FILE = getString("--init.file")
   def BATCH_SIZE = getInt("--batch.size", 1)
   def AVERAGE_LAST = getBoolean("--average.last", false)
+  def TIME = getBoolean("--time", false)
 
   def DAMP_INIT = getDouble("--damp.init", 1.0)
   def DAMP_RATE = getDouble("--damp.rate", 0.001)
   def DIFF_THRESHOLD = getDouble("--diff.threshold", 0.001)
   def INFERENCE_ITERATIONS = getInt("--inference.iterations", 10)
   def VERBOSE = getBoolean("--verbose", false)
+
+  def GROUP1_REG = getDouble("--group.reg.1", 1.0)
+  def GROUP2_REG = getDouble("--group.reg.2", 1.0)
+  def GROUP3_REG = getDouble("--group.reg.3", 1.0)
 
 }

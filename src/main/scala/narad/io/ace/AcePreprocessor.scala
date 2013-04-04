@@ -1,4 +1,4 @@
-package narad.io.reader
+package narad.io.util
 
 /*
 import edu.stanford.nlp.tagger.maxent.MaxentTagger

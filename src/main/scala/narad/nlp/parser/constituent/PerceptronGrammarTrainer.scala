@@ -2,7 +2,7 @@
 package narad.nlp.parser.constituent
 import narad.nlp.trees._
 import narad.util.ArgParser
-import narad.io.reader.TreeReader
+import narad.io.tree.TreeReader
 import scala.collection.mutable.HashMap
 
 object PerceptronGrammarTrainer {

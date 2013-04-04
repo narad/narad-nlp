@@ -1,4 +1,4 @@
-package narad.io.reader
+package narad.io.util
 
 abstract class Reader[T] {
 	

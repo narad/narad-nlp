@@ -1,6 +1,6 @@
 package narad.io.onto
 import narad.nlp.trees.ConstituentTree
-import narad.io.reader.TreebankReader
+import narad.io.tree.TreebankReader
 import narad.util.ArgParser
 
 class OntoReader(nerFile: String, treeFile: String, options: ArgParser = new ArgParser(Array[String]())) extends Iterable[OntoDatum] {

@@ -10,6 +10,6 @@ import narad.nlp.parser.constituent.ConstituentParserParams
  */
 class SRLParams(args: Array[String]) extends ConstituentParserParams(args){
 
-
+  override def MODEL = getString("--model", "BASELINE")
 
 }

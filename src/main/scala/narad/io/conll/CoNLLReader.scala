@@ -1,6 +1,6 @@
 package narad.io.conll
 
-import narad.io.reader.ChunkReader
+import narad.io.util.ChunkReader
 import narad.util.ArgParser
 import scala.collection.mutable.ArrayBuffer
 
@@ -55,7 +55,7 @@ object CoNLLReader {
     Iterator.continually(readNext(lines)).takeWhile(_ != null)
 
 
-    for (chunk <- reader) yield {
+    for (chunk <- util) yield {
 //			System.err.println("READER CHUNK:")
 //			System.err.println(chunk)
 			try {

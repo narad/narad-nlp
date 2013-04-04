@@ -6,7 +6,7 @@ import edu.stanford.nlp.tagger.maxent.MaxentTagger;
 import edu.stanford.nlp.tagger.maxent.TaggerConfig;
 import edu.stanford.nlp.util.XMLUtils;
 import narad.nlp.trees.ConstituentTree
-import narad.io.reader.TreebankReader
+import narad.io.tree.TreebankReader
 
 class StanfordTaggerWrapper(filename: String) {
 	val tagger = new MaxentTagger(filename)

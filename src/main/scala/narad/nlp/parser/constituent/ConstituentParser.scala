@@ -1,8 +1,8 @@
 package narad.nlp.parser.constituent
 
-import narad.bp.optimize.{L1Regularizer, Optimizer}
+import narad.bp.optimize.{L2Regularizer, Optimizer}
 import narad.bp.util.{PotentialExample, PotentialReader}
-import narad.io.reader.TreebankReader
+import narad.io.tree.TreebankReader
 import narad.bp.structure._
 import narad.bp.inference.{InferenceOrder, BeliefPropagation}
 import collection.mutable.{ArrayBuffer, HashSet}
@@ -10,39 +10,50 @@ import java.io.FileWriter
 import narad.bp.structure.Potential
 import narad.bp.util.PotentialExample
 import scala.util.matching.Regex
+import narad.nlp.trees._
+import narad.io.tree._
+import scala.collection.mutable.Queue
+import narad.bp.util.index._
 
 object ConstituentParser {
 
   def main(args: Array[String]) = {
     val params = new ConstituentParserParams(args)
-    println(params.ORDER)
-    val parser = params.ORDER match {
+    println(params.MODEL)
+    val parser = params.MODEL match {
       case "BRACK" => new ConstituentBracketParser(params)
       case "LABEL" => new ConstituentLabelParser(params)
     }
-    if (params.getBoolean("--extract.features")) {
+    if (params.EXTRACT_FEATURES) {
+      System.err.println("Extracting features...")
       val reader = new TreebankReader(params.TRAIN_FILE)
-      val trees = reader.iterator.toArray
-      val btrees = trees.map(_.binarize.removeUnaryChains())
-      trees.foreach(_.annotateWithIndices(0))
-      btrees.foreach(_.annotateWithIndices(0))
-      val blabels = btrees.map(_.getSpans.map(_.label).toArray).flatten.distinct.sortBy(_.toString)
-      val ulabels = trees.map(_.getSpans.map(_.label).toArray).toArray.flatten.distinct.sortBy(_.toString)
-      //      val ulabels = trees.map(_.map(_.label()).toArray).toArray.flatten.distinct.sortBy(_.toString)
-//      val blabels  = btrees.map(_.map(_.label()).toArray).toArray.flatten.distinct.sortBy(_.toString)
-      System.err.println("Using labels:\n%s".format(blabels.mkString("\n")))
-      parser.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, blabels, ulabels, params)
-      parser.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, blabels, ulabels, params)
+      val index = new ArrayIndex[String]()
+      val stats = TreebankStatistics.construct(new TreebankReader(params.TRAIN_FILE).iterator)
+      parser.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, stats, index, params)
+      parser.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, stats, index, params)
+      /*
+            val trees = util.iterator.toArray
+            val btrees = trees.map(_.binarize.removeUnaryChains())
+            trees.foreach(_.annotateWithIndices(0))
+            btrees.foreach(_.annotateWithIndices(0))
+            val blabels = btrees.map(_.nonterminals.map(_.label).toArray).flatten.distinct.sortBy(_.toString)
+            val ulabels = trees.map(_.nonterminals.map(_.label).toArray).flatten.distinct.sortBy(_.toString)     // ***FIX THIS LINE
+            //      val ulabels = trees.map(_.map(_.label()).toArray).toArray.flatten.distinct.sortBy(_.toString)
+            //      val blabels  = btrees.map(_.map(_.label()).toArray).toArray.flatten.distinct.sortBy(_.toString)
+            System.err.println("Using labels:\n%s".format(blabels.mkString("\n")))
+            parser.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, blabels, ulabels, params)
+            parser.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, blabels, ulabels, params)
+      */
     }
-    else if (params.getBoolean("--train")) {
-      val optimizer = new Optimizer(parser) with L1Regularizer
-      val data = PotentialReader.read(params.TRAIN_FIDX_FILE).toArray
-      optimizer.train(data, params)
+    else if (params.TRAIN) {
+      val optimizer = new Optimizer(parser, params) with L2Regularizer
+      val data = new PotentialReader(params.TRAIN_FIDX_FILE)
+      optimizer.train(data)
     }
-    else if (params.getBoolean("--test")) {
-      val optimizer = new Optimizer(parser)
-      val data = PotentialReader.read(params.TEST_FIDX_FILE).toArray
-      optimizer.test(data, params)
+    else if (params.TEST) {
+      val optimizer = new Optimizer(parser, params)
+      val data = new PotentialReader(params.TEST_FIDX_FILE)
+      optimizer.test(data)
     }
   }
 }
@@ -52,25 +63,35 @@ class ConstituentParser(params: ConstituentParserParams) extends FactorGraphMode
   val LABEL_PATTERN1   = """spanLabel(.*)\(([0-9]+),([0-9]+)\).*""".r
   val LABEL_PATTERN2   = """.*\(([0-9]+),([0-9]+),([0-9]+).*""".r
 
+  val BRACK_PATTERN       = """brack\(([0-9]+),([0-9]+)\)""".r
+  val UNARY_PATTERN       = """unary\(([0-9]+),([0-9]+)\)""".r
+  val UNARY_LABEL_PATTERN1 = """unaryLabel(.*)\(([0-9]+),([0-9]+)\)""".r
+  val UNARY_LABEL_PATTERN2 = """unaryLabel\(([0-9]+),([0-9]+),(.+)\)""".r
+
+
   def constructFromExample(ex: PotentialExample, pv: Array[Double]): ModelInstance = {
     val slen   = ex.attributes.getOrElse("slen", "-1").toInt
     val pots = ex.exponentiated(pv)
+    println("\n\nEXPONENTED:\n" + pots.mkString("\n"))
     val fg = new FactorGraphBuilder(pots)
-    val groups = pots.groupBy{p =>
+
+    val groups = pots.filter(!_.name.contains("unary")).groupBy{p =>
       val INDICES_PATTERN(start, end) = p.name
       (start.toInt, end.toInt)
     }
     var useLabels = false
+    val brackIdxs = Array.ofDim[Int](slen+1, slen+1) //new ArrayBuffer[Int]()
+    val labelIdxs = Array.fill[ArrayBuffer[Int]](slen+1, slen+1)(new ArrayBuffer[Int])
     for (width <- 2 to slen; start <- 0 to (slen - width)) {
       val end = start + width
       val gpots = groups((start, end))
-      fg.addVariable("brackvar(%d,%d)".format(start, end), arity=2)
+      brackIdxs(start)(end) = fg.addVariable("brackvar(%d,%d)".format(start, end), arity=2)
       fg.addUnaryFactor("brackvar(%d,%d)".format(start, end), "brackfac(%d,%d)".format(start, end), gpots(0))
       if (gpots.size > 1) {
         useLabels = true
         for (gpot <- gpots.tail) {
           val LABEL_PATTERN1(label, s, e) = gpot.name
-          fg.addVariable("labelvar(%d,%d,%s)".format(start, end, label), arity=2)
+          labelIdxs(start)(end) += fg.addVariable("labelvar(%d,%d,%s)".format(start, end, label), arity=2)
           fg.addUnaryFactor("labelvar(%d,%d,%s)".format(start, end, label), "labelfac(%d,%d,%s)".format(start, end, label), gpot)
         }
       }
@@ -78,22 +99,189 @@ class ConstituentParser(params: ConstituentParserParams) extends FactorGraphMode
     if (useLabels) {
       for (width <- 2 to slen; start <- 0 to (slen - width)) {
         val end = start + width
-//        if (start == 0 && end == slen) {
-//          fg.addAtMost1Factor(new Regex("labelvar\\(%d,%d,.+\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))
-//        }
-//        else {
-          fg.addIsAtMost1Factor(new Regex("brackvar\\(%d,%d\\)".format(start, end)), new Regex("labelvar\\(%d,%d,.+\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))
-//        }
+        //fg.addIsAtMost1Factor(new Regex("brackvar\\(%d,%d\\)".format(start, end)), new Regex("labelvar\\(%d,%d,.+\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))
+        fg.addIsAtMost1FactorByIndices(brackIdxs(start)(end), labelIdxs(start)(end).toArray, "isAtMost(%d,%d)".format(start, end))
       }
     }
-    fg.addCKYFactor(new Regex("brackvar"), slen=slen)
+ //   fg.addCKYFactor(new Regex("brackvar"), slen=slen)
+//    fg.addCKYFactorByIndices(brackIdxs.toArray, slen=slen)
+
+
+    val useUnaries = false
+    if (useUnaries) {
+      val ugroups = pots.filter(_.name.contains("unary")).groupBy{p =>
+        val INDICES_PATTERN(start, end) = p.name
+        (start.toInt, end.toInt)
+      }
+      for (start <- 0 until slen) {
+        val end = start + 1
+        val upots = ugroups((start, end))
+        brackIdxs(start)(end) = fg.addVariable("unaryvar(%d,%d)".format(start, end), arity=2)
+        fg.addUnaryFactor("unaryvar(%d,%d)".format(start, end), "unaryfac(%d,%d)".format(start, end), upots(0))
+        if (upots.size > 1) {
+          useLabels = true
+          for (gpot <- upots.tail) {
+            val UNARY_LABEL_PATTERN1(label, s, e) = gpot.name
+            labelIdxs(start)(end) += fg.addVariable("unaryLabelvar(%d,%d,%s)".format(start, end, label), arity=2)
+            fg.addUnaryFactor("unaryLabelvar(%d,%d,%s)".format(start, end, label), "unaryLabelfac(%d,%d,%s)".format(start, end, label), gpot)
+          }
+//          fg.addIsAtMost1Factor(new Regex("unaryvar\\(%d,%d\\)".format(start, end)), new Regex("unaryLabelvar\\(%d,%d,.+\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))
+          fg.addIsAtMost1FactorByIndices(brackIdxs(start)(end), labelIdxs(start)(end).toArray, "isAtMost(%d,%d)".format(start, end))
+        }
+      }
+    }
     return new ConstituentParserModelInstance(fg.toFactorGraph, ex)
   }
 
   def decode(instance: ModelInstance) = {
+    val slen    = instance.ex.attributes.getOrElse("slen", "-1").toInt
+    val words   = instance.ex.attributes.getOrElse("words", "").trim.split(" ")
+    val tags    = instance.ex.attributes.getOrElse("tags", "").trim.split(" ")
+    System.err.println("Decoding...\n" + words.mkString(" "))
+    //    println("slen = " + slen)
+    //    println("words size = " + words.size)
+    //    println("tags size = " + tags.size)
     val beliefs = instance.marginals
+    val spans = new ArrayBuffer[Span]
 
+    val labelGroups = beliefs.filter(_.name.contains("spanLabel")).groupBy{p =>
+      val INDICES_PATTERN(start, end) = p.name
+      (start.toInt, end.toInt)
+    }
+    if (slen > 2) {
+      val ckybeliefs = ckyBrackets(beliefs.filter(_.name.startsWith("brack(")), slen).groupBy{p =>
+        val INDICES_PATTERN(start, end) = p.name
+        (start.toInt, end.toInt)
+      }
+      for (width <- 2 to slen; start <- 0 to (slen - width)) {
+        val end = start + width
+        if (ckybeliefs((start, end))(0).value > 0.5) {
+          val label = if (labelGroups.contains((start, end))) {
+            maxLabel(labelGroups((start, end)))
+          }
+          else {
+            "EHH"
+          }
+          spans += new Span(start.toInt, end.toInt, label)
+        }
+      }
+    }
+
+    val unaryGroups = beliefs.filter(_.name.contains("unaryLabel")).groupBy{p =>
+      val INDICES_PATTERN(start, end) = p.name
+      (start.toInt, end.toInt)
+    }
+    System.err.println("UNARY BELIEFS = " + beliefs.filter(_.name.contains("unaryLabel")).size)
+    beliefs.filter(_.name.contains("unary")).foreach( System.err.println(_))
+    beliefs.filter(p => p.name.contains("unary(") && p.value > 0.5).foreach { unary =>
+      val UNARY_PATTERN(start, end) = unary.name
+      spans += new Span(start.toInt, end.toInt, maxLabel(unaryGroups((start.toInt, end.toInt))), height=1)
+    }
+
+    //    System.err.println("SPANS:\n" + spans.mkString("\n"))
+    val tree = TreeFactory.constructFromSpans(spans.toArray.filter(s => !s.label.contains("@") && s.width != slen), slen)
+    tree.annotateWithIndices(0)
+
+    tree.setYield(words, tags)
+    System.out.println(tree.toString() + "\n")
+
+    if (params.OUTPUT_FILE != null) {
+      val out = new FileWriter(params.OUTPUT_FILE, true)
+      out.write(tree.toString + "\n")
+      out.close()
+    }
   }
+
+  def ckyBrackets(pots: Array[Potential], slen: Int): Array[Potential] = {
+    //    System.err.println("%d pots in cky-bracks.".format(pots.size))
+    assert(!pots.exists(!_.name.startsWith("brack")), "There is a potential in ckyBrackets that is not a bracket potential.")
+    val beta  = Array.ofDim[Double](slen+1, slen+1)
+    val split = Array.ofDim[Int](slen+1, slen+1)
+    val brack = Array.ofDim[Boolean](slen+1, slen+1)
+    val scores = pots.map(_.value)
+    //    val sp = scores
+
+    val groups = pots.filter(_.name.contains("brack")).groupBy{p =>
+      val INDICES_PATTERN(start, end) = p.name
+      (start.toInt, end.toInt)
+    }
+    //    System.err.println("GROUPS =\n" + groups.toArray.mkString("\n"))
+
+    for (w <- 2 until slen; i <- 0 to slen-w) {
+      val k = i + w
+      var inside = Double.NegativeInfinity
+      var best = 0
+      for (j <- i+1 until k) {
+        val s = beta(i)(j) + beta(j)(k)
+        if (s > inside) {
+          inside = s
+          best = j
+        }
+      }
+      val sp1 = groups((i, k))(0) //pots.filter(_.name == "brack(%d,%d)".format(i,k))(0)
+      //			println("Brack(%d,%d) = " + sp)
+      beta(i)(k) = inside + sp1.value
+      split(i)(k) = best
+    }
+    var inside = Double.NegativeInfinity
+    var best = 0
+    for (j <- 1 until slen) {
+      val s = beta(0)(j) + beta(j)(slen)
+      if (s > inside) {
+        inside = s
+        best = j
+      }
+    }
+    beta(0)(slen) = inside
+    split(0)(slen) = best
+    ckyBacktrace(0, slen, split, brack)
+    //		var op = out // ???
+    for (w <- 2 until slen; i <- 0 to slen-w) {
+      val k = i + w
+      var sp2 = groups((i, k))(0) //pots.filter(_.name == "brack(%d,%d)".format(i,k))(0)
+      sp2.value = if (brack(i)(k)) 1.0 else 0.0
+      //			op += 1
+    }
+    groups((0, slen))(0).value = 1
+    //    pots.filter(_.name == "brack(%d,%d)".format(0,slen))(0).value = 1
+    //		return beta(0)(slen)
+    return pots
+  }
+
+  def ckyBacktrace(i: Int, k: Int, split: Array[Array[Int]], brack: Array[Array[Boolean]]): Int = {
+    val j = split(i)(k)
+    if (j > (i+1)) {
+      brack(i)(j) = true
+      //			println("backtrace-1(%d,%d)".format(i, j))
+      ckyBacktrace(i, j, split, brack)
+    }
+    if (j < (k-1)) {
+      brack(j)(k) = true
+      //			println("backtrace-2(%d,%d)".format(j, k))
+      ckyBacktrace(j, k, split, brack)
+    }
+    return 1
+  }
+
+  def maxLabel(pots: Array[Potential]): String = {
+    // 		println("label potentials size = %d".format(pots.size) + "\n" + pots.mkString("\n"))
+    var max = pots(0) //Double.NegativeInfinity
+    for (pot <- pots) {
+      if (pot.value > max.value) {
+        max = pot
+      }
+    }
+    //    println("max pot = " + max)
+    if (max.name.contains("unary")) {
+      val UNARY_LABEL_PATTERN1(label, start, end) = max.name
+      return label
+    }
+    else {
+      val LABEL_PATTERN1(label, start, end) = max.name
+      return label
+    }
+  }
+
 
   def options = params
 }
@@ -109,20 +297,95 @@ trait ConstituentParserFeatures {}
 trait ParserInferenceOrder extends InferenceOrder {
 
   override def messageOrder(graph: FactorGraph): Iterator[MessageNode] = {
-    System.err.println("Using Parser Inference Order...")
-    println(graph.toString)
+    //  System.err.println("Using Parser Inference Order...")
+    //    println(graph.toString)
+
+    /*
     val idxpattern = new Regex(".*\\(([0-9]+)[^0-9].*")
     val mqueue = scala.collection.mutable.Queue[MessageNode]()
-//    graph.nodes.filter(n => n.isFactor && n.arity == 1 && n.name.contains("brack")).foreach(mqueue += _)
-//    graph.nodes.filter(n => n.isFactor && n.arity == 1 && n.name.contains("label")).foreach(mqueue += _)
-    graph.nodes.filter(n => n.isFactor && n.arity > 1).sortBy(_.arity).foreach(mqueue += _)
-    graph.nodes.filter(n => n.isVariable && n.name.contains("brack")).foreach(mqueue += _)
+    //    graph.nodes.filter(n => n.isFactor && n.arity == 1 && n.name.contains("brack")).foreach(mqueue += _)
+    //    graph.nodes.filter(n => n.isFactor && n.arity == 1 && n.name.contains("label")).foreach(mqueue += _)
     graph.nodes.filter(n => n.isVariable && n.name.contains("label")).foreach(mqueue += _)
-    mqueue.iterator
+    graph.nodes.filter(n => n.isFactor && n.arity > 1 && !n.name.contains("CKY")).sortBy(_.arity).foreach(mqueue += _)
+    graph.nodes.filter(n => n.isVariable && n.name.contains("brack")).foreach(mqueue += _)
+    graph.nodes.filter(n => n.isFactor && n.arity > 1 && n.name.contains("CKY"))
+    mqueue.iterator ++ mqueue.reverseIterator
+    */
+
+    val mqueue = new Queue[MessageNode]()
+    val q1 = new Queue[MessageNode]()
+    val q2 = new Queue[MessageNode]()
+    val q3 = new Queue[MessageNode]()
+    val q4 = new Queue[MessageNode]()
+    for (n <- graph.nodes) {
+      if (n.name.startsWith("CKY")) {
+        q4 += n
+      }
+      if (n.isFactor && n.arity > 1 && !n.name.contains("CKY")) {
+        q2 += n
+      }
+      if (n.isVariable) {
+        if (n.name.contains("Label")) {
+          q1 += n
+        }
+        else {
+          q3 += n // brack variables
+        }
+      }
+    }
+
+    mqueue ++= q1
+    mqueue ++= q2
+    mqueue ++= q3
+    mqueue ++= q4
+    mqueue.iterator ++ mqueue.reverseIterator
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    /*
+    //    graph.nodes.filter(n => n.isFactor && n.arity == 1 && n.name.contains("brack")).foreach(mqueue += _)
+    //    graph.nodes.filter(n => n.isFactor && n.arity == 1 && n.name.contains("label")).foreach(mqueue += _)
+    graph.nodes.filter(n => n.isVariable && n.name.contains("label")).foreach(mqueue += _)
+    graph.nodes.filter(n => n.isFactor && n.arity > 1 && !n.name.contains("CKY")).sortBy(_.arity).foreach(mqueue += _)
+    graph.nodes.filter(n => n.isVariable && n.name.contains("brack")).foreach(mqueue += _)
+    graph.nodes.filter(n => n.isFactor && n.arity > 1 && n.name.contains("CKY"))
+    mqueue.iterator ++ mqueue.reverseIterator
+   */
+
+
+
+
+
+
+
+
     // cky
     // isatmost
     //
-/*
+    /*
     graph.nodes.filter(_.name.contains("labelvar")).foreach(mqueue += _)
     graph.nodes.filter(_.name.contains("labelvar")).foreach(mqueue += _)
 
@@ -145,15 +408,22 @@ trait ParserInferenceOrder extends InferenceOrder {
     }
     */
     //(mqueue ++ mqueue.reverse).iterator
-  }
-
-}
 
 
 
 
 
 
+/*
+        if (pot.name.contains("brack")) {
+          val LABEL_PATTERN1(plabel, pstart, pend) = pot.name
+          label = plabel
+        }
+        else if (pot.name.contains("unary")) {
+          val UNARY_LABEL_PATTERN(pstart, pend, plabel) = pot.name
+          label = plabel
+        }
+ */
 
 
 
@@ -168,7 +438,7 @@ trait ParserInferenceOrder extends InferenceOrder {
 package narad.nlp.parser.constituent
 import narad.bp.structure._
 import narad.nlp.trees.{Span, Token, ConstituentTree}
-import narad.io.reader.{SpanReader, TreeReader}
+import narad.io.util.{SpanReader, TreeReader}
 import scala.collection.mutable.ArrayBuffer
 import scala.util.matching._
 import narad.bp.util._
@@ -1248,3 +1518,543 @@ val nts = beliefs.map { b =>
 
 
 
+/*
+package narad.nlp.parser.constituent
+import narad.bp.structure._
+import narad.bp.train._
+import narad.bp.util._
+import narad.nlp.trees.Tree
+import narad.io.tree.TreeReader
+import narad.util._
+import scala.collection.mutable.{ArrayBuffer, HashMap}
+
+object ParserRunner {
+
+
+  def main(args: Array[String]) = {
+    val options  = new ArgParser(args)
+    val fidxFile = options.getString("--fidx.file", "null")
+    val initFile = options.getString("--init.file", "null")
+    val outFile  = options.getString("--out.file", "parser.model")
+    val pvsize     = options.getInt("--pv.size", -1)
+    val maxEx      = options.getInt("--max.examples", -1)
+    val iterations = options.getInt("--iterations", 10)
+    val rate       = options.getDouble("--rate", 0.3)
+    val initRate   = options.getDouble("--init.rate", 1)
+    val prune = options.getBoolean("--prune", false)
+    val verbose = options.getBoolean("--verbose", false)
+    var btime = System.currentTimeMillis()
+
+    if (options.getBoolean("--train", false)) {
+      train(fidxFile, initFile, outFile, pvsize, iterations, maxEx, verbose=verbose)
+    }
+    else if (options.getBoolean("--test", false)) {
+      test(fidxFile, initFile, verbose=verbose) //, prune)
+    }
+    System.err.println("Elapsed Time: " + (System.currentTimeMillis() - btime) / 1000.0 + "s.")
+  }
+
+
+  def train(fidxFile: String, initFile: String, outFile: String, pvsize: Int, iterations: Int = 10, maxEx: Int = -1, verbose: Boolean = false) = {
+    var params = init(initFile, pvsize)
+    val nrExamples = if (maxEx == -1) countExamples(fidxFile) else maxEx
+    for (i <- 0 until iterations) {
+      val nparams = SGDTrainer.train(params, fidxFile, Parser.construct, maxExamples = nrExamples, bpIters = 10, verbose = verbose)
+      if (i+1 == iterations) {
+        writeToFile(nparams.tail, outFile + ".pv")
+      }
+      else{
+        writeToFile(nparams.tail, outFile + "." + (i+1) + ".pv")
+      }
+      params = nparams
+    }
+  }
+
+  def test(fidxFile: String, initFile: String, maxEx: Int = -1, verbose: Boolean = false) = {
+    var params = init(initFile)
+    val maxExamples = if (maxEx == -1) countExamples(fidxFile) else maxEx
+    var count = 0
+    for (ex <- PotentialReader.read(fidxFile) if count < maxExamples) {
+      val words     = ex.attributes("@words").split(" ")
+      val tags      = ex.attributes("@tags").split(" ")
+      val slen      = words.size
+      val model = SGDTrainer.test(params, Parser.construct, ex, bpIters = 10, verbose = verbose).asInstanceOf[Parser]
+      val tree = model.decode(words, tags)
+      println(tree)
+      count += 1
+    }
+  }
+
+/*
+  def construct(ex: PotentialExample, pots: Array[Potential]): Parser = {
+    val words     = ex.attributes("@words").split(" ")
+//		val nonterms  = ex.attributes.getOrElse("@grammar", "").split(" ").distinct
+    val slen      = words.size
+    System.err.print("Constructing Parser (%d words, %d pots): ".format(slen, pots.size))
+    var startTime = System.currentTimeMillis()
+    val model = Parser.construct(pots, slen) //, nonterms)
+    System.err.println((System.currentTimeMillis() - startTime) / 1000.0 + "s.")
+    model
+  }
+*/
+
+  def init(initFile: String, pvsize: Int = 0): Array[Double] = {
+    assert(initFile != "null" || pvsize > 0, "No init.file or pv.size specified.")
+    if (initFile == "null") {
+      return Array.fill(pvsize+1)(0.0)
+    }
+    else {
+      val params1 = io.Source.fromFile(initFile).getLines().map(_.toDouble).toArray
+      val params = Array[Double](0.0) ++ params1
+      if (pvsize > params.size) {
+        return params ++ Array.fill(pvsize - (params.size+1))(0.0)
+      }
+      else {
+        return params
+      }
+    }
+  }
+
+  def writeToFile(array: Array[Double], filename: String) {
+    val fw = new java.io.FileWriter(filename)
+    array.foreach{ p =>
+      fw.write(p + "\n")
+    }
+    fw.close
+  }
+
+  def countExamples(filename: String): Int = {
+    print("Determining number of examples in fidx file...")
+    val endPattern   = """[ \n\t]*""".r
+    var count = 0
+    for (line <- scala.io.Source.fromFile(filename).getLines if line == "") count += 1
+    println(count + ".")
+    return count
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//	def computePotentials(params: Array[Double], feats: Array[Array[Feature]]): Array[Double] = {
+//		println("Params = %d".format(params.size))
+//		feats.map(x => x.foldLeft(0.0)((sum, feat) => sum + params(feat.idx) * feat.value))
+//	}
+
+  //			var nparams = sgdtrain(params, fidxFile, maxExamples = nrExamples, iteration = i)
+
+//		val pots = ex.potentials
+/*
+  var btime = System.currentTimeMillis()
+
+    val names   = pots.map(_.name)
+    val correct = pots.map(_.isCorrect)
+    val feats   = ex.features // pots.map(_.features)
+    println("timed extracted example in " +  (System.currentTimeMillis() - btime))
+    btime = System.currentTimeMillis()
+
+    val pscores  = computePotentials(params, feats)
+    println("timed potentials in " +  (System.currentTimeMillis() - btime))
+     btime = System.currentTimeMillis()
+
+    val scores = pscores.map(Math.exp(_))
+    println("timed constructed node arry in " +  (System.currentTimeMillis() - btime))
+    btime = System.currentTimeMillis()
+
+    for (i <- 0 until pscores.size) {
+      println("O = %f;\tE = %f".format(pscores(i), scores(i)))
+    }
+*/
+
+
+  // def train(params: Array[Double],
+  // 	fidxFile: String, constructor: (PotentialExample, Array[Potential]) => Model,
+  //  maxExamples: Int = Int.MaxValue,
+  //	rate: Double = -0.01,
+  //  variance: Double = 0.0,
+  //  bpIters: Int = 5,
+  //  verbose: Boolean = false): Array[Double] = {
+
+
+    //}, prune: Boolean) = {
+/*
+    var params = init(initFile)
+    for (ex <- PotentialReader.read(fidxFile)) {
+      val words  = ex.attributes("@words").split(" ")
+      val nonterms = ex.attributes.getOrElse("@grammar", "").split(" ").distinct
+      var btime = System.currentTimeMillis()
+
+      val pots = ex.potentials
+      val names   = pots.map(_.name)
+      val correct = pots.map(_.isCorrect)
+      val feats   = pots.map(_.features)
+      println("timed extracted example in " +  (System.currentTimeMillis() - btime))
+      btime = System.currentTimeMillis()
+
+      val pscores  = computePotentials(params, feats)
+      println("timed potentials in " +  (System.currentTimeMillis() - btime))
+       btime = System.currentTimeMillis()
+
+      val scores = pscores.map(Math.exp(_))
+      println("timed constructed node arry in " +  (System.currentTimeMillis() - btime))
+      btime = System.currentTimeMillis()
+
+      for (i <- 0 until pscores.size) {
+        println("O = %f;\tE = %f".format(pscores(i), scores(i)))
+      }
+      val model = Parser.construct2(names, scores, words.size, nonterms)
+      println("timed parser creation in " +  (System.currentTimeMillis() - btime))
+      btime = System.currentTimeMillis()
+
+      var conv = runBP(model.graph, 5, 1, 0.1)
+      println("timed BP in " +  (System.currentTimeMillis() - btime))
+      btime = System.currentTimeMillis()
+      model.decode(words)
+      println
+    }
+  */
+
+//	def sgdtrain(params: Array[Double], fidxFile: String, maxExamples: Int = Int.MaxValue, rate: Double = 0.1, iteration: Int = 0): Array[Double] = { //pots: Array[Potential], scores: Array[Double], maxExamples: Int = 1): Array[Double] = {
+//		var count = 0
+//		var pvv = params.clone
+//		val damp = 0.099
+    /*
+    for (ex <- PotentialReader.read(fidxFile) if count < maxExamples) {
+//			val rate = -1.0 * (0.01 / (1.0 + ((count+1.0) + (iteration * maxExamples))/(maxExamples*1.0)))
+      println("\nPVV:")
+        for (i <- 0 until pvv.size) {
+          println("[%d]\t%f".format(i, pvv(i)))
+        }
+      val rate = -0.01
+      val pots = ex.potentials
+      val names   = pots.map(_.name)
+      val correct = pots.map(_.isCorrect)
+      val feats   = pots.map(_.features)
+      val scores  = computePotentials(pvv, feats).map(Math.exp(_))
+      println("\nSCORES:")
+        for (i <- 0 until scores.size) {
+          println("[%d]\t%s\t%f".format(i, names(i), scores(i)))
+        }
+
+
+      val words  = ex.attributes("@words").split(" ")
+      val tagset = ex.attributes.getOrElse("@grammar", "").split(" ").distinct
+
+      val model = Parser.construct2(names, scores, words.size, tagset)
+      println("Model")
+      println(model.toString)
+      var conv = runBP(model.graph, 5, damp, 0.1)
+
+//			for (e <- model.graph.edges) {
+//				println()
+//			}
+      val beliefs = model.potentialBeliefs.distinct
+//			var bcount = 0
+//			for (ob <- beliefs1) { println(bcount + "\t" + ob); bcount += 1 }
+//			println("---------")
+//			println(beliefs1.size)
+//			println(names.size)
+
+/*
+      var beliefs = beliefs1.zipWithIndex.map { case(v, idx) =>
+        Tuple(names(idx), v._2)
+      }
+*/
+//			beliefs(beliefs.size-1) = Tuple("brack(0,16)", 1.0)
+
+//			for (i <- 0 until beliefs.size) {
+//				println("%s vs %s".format(names(i), beliefs1(i)._1))
+//			}
+
+      val margs = beliefs.map { belief =>
+        val idx = names.indexOf(belief._1)
+        assert(idx != -1, "Potential %s from marg function does not match any name from the potential file.")
+        println("  name = " + belief._1 + "\t" + idx + "\t" + belief._2)
+        if (correct(idx))
+          belief._2 - 1.0
+        else
+          belief._2
+      }
+      println("\nBELIEFS")
+      for (i <- 0 until beliefs.size) {
+        println("%s\t%f\t%f".format(beliefs(i)._1, beliefs(i)._2, margs(i)))
+      }
+/*
+      println("Pots not used?")
+      val n2 = beliefs.map(_._1)
+      for (pot <- names.filter(!n2.contains(_))) {
+        println("NOT FOUND = " + pot)
+      }
+*/
+      pvv = margupdate(pvv, feats, margs, rate=rate)
+      println("\n\nPV:")
+      for (i <- 0 until pvv.size) {
+        println("[%d]\t%f".format(i, pvv(i)))
+      }
+      count += 1
+    }
+    */
+//		return pvv
+//	}
+
+
+/*
+
+  def margupdate(oldpv: Array[Double], feats: Array[Array[Feature]], margs: Array[Double], rate: Double = 1.0): Array[Double] = {
+    println("rate = " + rate)
+    var newpv = oldpv
+    assert(feats.size == margs.size, "feats and marg arguments to margupdate were not identically sized (%d to %d).".format(feats.size, margs.size))
+    for (i <- 0 until margs.size) {
+      val grad = margs(i) * rate
+      for (j <- 0 until feats(i).size) {
+        val feat = feats(i)(j)
+        newpv(feat.idx) += grad * feat.value
+      }
+    }
+    println("\nMarg Update:")
+    for (i <- 0 until 20) {
+      //			println(newpv(i) + " : " + margs(i) + "\t" + feats(i).mkString(","))
+    }
+
+    return newpv
+  }
+
+
+  def runBP(graph: FactorGraph, bpiters: Int = 5, drate: Double = 0.99, dinit: Double, threshold: Double = .001): Boolean = {
+    val model = graph  // Should pass in a model and not need to do this, but tagger does not subclass FG yet
+    var maxDiff = -1.0
+    var damp = dinit
+    val mqueue = scala.collection.mutable.Queue[MessageNode]() // queue for everything not in uqueue
+    val uqueue = scala.collection.mutable.Queue[MessageNode]() // queue for unary factors, will probably rearrange and make this obsolete
+    // Load the queue, could add support for user pre-loading of the queue
+    for (fac <- model.factors) {
+      if (model.edgesFrom(fac).size == 1) {
+        uqueue += fac
+      }
+      else {
+        mqueue += fac
+      }
+    }
+    for (v <- model.variables) {
+      mqueue += v
+    }
+
+//		mqueue ++= mqueue.reverse
+    println("M QUEUE: ")
+    for (m <- mqueue) {
+      println("\t" + m.toString)
+    }
+
+    // Do the unary facs first with no damping
+    for (u <- uqueue) {
+      u.computeMessages(model, damp=1)
+    }
+    // Do the others with successive damping
+    for (i <- 0 until bpiters) {
+      println("\n\nBP ITER %d".format(i))
+      for (v <- mqueue) {
+        maxDiff = -1.0
+        var diff = v.computeMessages(model, 1) //damp=damp)
+        if (diff > maxDiff) maxDiff = diff
+      }
+      println(maxDiff + " vs threshold of " + threshold)
+      if (i > 0 && maxDiff < threshold) {  // Converged??
+        return true
+      }
+      if (i > 1) damp *= drate
+    }
+    return false
+  }
+  */
+
+
+
+/*
+
+
+def train(fidxFile: String, initFile: String, outFile: String, pvsize: Int, iterations: Int = 10) = {
+var params = init(initFile, pvsize)
+val nrExamples = countExamples(fidxFile)
+for (i <- 0 until iterations) {
+var nparams = sgdtrain(params, fidxFile, maxExamples = nrExamples, iteration = i)
+if (i+1 == iterations) {
+writeToFile(nparams.tail, outFile + ".pv")
+}
+else{
+writeToFile(nparams.tail, outFile + "." + (i+1) + ".pv")
+}
+params = nparams
+}
+}
+
+def test(fidxFile: String, initFile: String) = {
+var params = init(initFile)
+for (ex <- PotentialReader.read(fidxFile)) {
+val words  = ex.attributes("@words").split(" ")
+//			val tags = ex.attributes("@tagset").split(" ")
+var pots = ex.potentials
+val scoredpots = computePotentials(params, pots)
+val names = scoredpots.map(_._1.name)
+val ppots = scoredpots.map(_._2)
+val parser = Parser.construct(names, ppots, words.size)
+var conv = runBP(parser.graph, 5, 1, 0.1)
+parser.decode(words)
+println
+}
+}
+
+def sgdtrain(params: Array[Double], fidxFile: String, maxExamples: Int = Int.MaxValue, rate: Double = 0.1, iteration: Int = 0): Array[Double] = { //pots: Array[Potential], scores: Array[Double], maxExamples: Int = 1): Array[Double] = {
+var count = 0
+var pvv = params.clone
+for (ex <- PotentialReader.read(fidxFile) if count < maxExamples) {
+val rate = -1.0 * (0.01 / (1.0 + ((count+1.0) + (iteration * maxExamples))/(maxExamples*1.0)))
+var pots = ex.potentials
+println("computing potentials")
+val scoredpots = computePotentials(pvv, pots) //.map(_._2)
+val words  = ex.attributes("@words").split(" ")
+val corrects = pots.filter(_.isCorrect).map(_.name)
+println("getting marges")
+val marg = margfun(scoredpots, damp=0.099, words).map(p => if (corrects.contains(p._1)) Tuple(p._1, p._2 - 1.0) else p  )
+println("marg update")
+pvv = margupdate(pvv, pots, marg, rate=rate)
+println("done")
+count += 1
+}
+return pvv
+}
+
+def margfun(scoredpots: Array[(Potential, Double)], damp: Double = 0.99, words: Array[String]): Array[(String, Double)] = {
+val names = scoredpots.map(_._1.name)
+val ppots = scoredpots.map(_._2)
+println("Constructing parser")
+val model = Parser.construct(names, ppots, words.size)
+println(model.toString)
+println("Running BP")
+var conv = runBP(model.graph, 5, damp, 0.1)
+println("Getting beliefs")
+val beliefs = model.potentialBeliefs
+return beliefs
+}
+
+def margupdate(oldpv: Array[Double], pots: Array[Potential], margs: Array[(String, Double)], rate: Double = 1.0): Array[Double] = {
+var newpv = oldpv
+pots.zip(margs.map(_._2)).foreach { case(pot,gradient) =>
+val grad = gradient * rate
+for (feat <- pot.features) {
+newpv(feat.idx) += grad * feat.value
+}
+}
+return newpv
+}
+
+def runBP(graph: FactorGraph, bpiters: Int = 5, drate: Double = 0.99, dinit: Double, threshold: Double = 0): Boolean = {
+val model = graph  // Should pass in a model and not need to do this, but tagger does not subclass FG yet
+var maxDiff = -1.0
+var damp = dinit
+val mqueue = scala.collection.mutable.Queue[MessageNode]() // queue for everything not in uqueue
+val uqueue = scala.collection.mutable.Queue[MessageNode]() // queue for unary factors, will probably rearrange and make this obsolete
+// Load the queue, could add support for user pre-loading of the queue
+for (fac <- model.factors) {
+if (model.edgesFrom(fac).size == 1) {
+uqueue += fac
+}
+else {
+mqueue += fac
+}
+}
+for (v <- model.variables) {
+mqueue += v
+}
+// Do the unary facs first with no damping
+for (u <- uqueue) {
+u.computeMessages(model, damp=1)
+}
+// Do the others with successive damping
+for (i <- 0 until bpiters) {
+for (v <- mqueue) {
+maxDiff = -1.0
+var diff = v.computeMessages(model, damp=damp)
+if (diff > maxDiff) maxDiff = diff
+}
+if (i > 0 && maxDiff < threshold) {  // Converged??
+return true
+}
+if (i > 1) damp *= drate
+}
+return false
+}
+
+def init(initFile: String, pvsize: Int = 0): Array[Double] = {
+assert(initFile != "null" || pvsize > 0, "Both init.file and pv.size are not specified correctly.")
+if (initFile == "null") {
+return Array.fill(pvsize+1)(0.0)
+}
+else {
+val params1 = io.Source.fromFile(initFile).getLines().map(_.toDouble).toArray
+val params = Array[Double](0.0) ++ params1
+if (pvsize > params.size) {
+return params ++ Array.fill(pvsize - (params.size+1))(0.0)
+}
+else {
+return params
+}
+}
+}
+
+def computePotentials(params: Array[Double], pots: Array[Potential]): Array[(Potential, Double)] = {
+var correctScore = 0.0
+val scores = new ArrayBuffer[(Potential, Double)]
+for (pot <- pots) {
+var score = 0.0
+for (feat <- pot.features) {
+score += params(feat.idx) * feat.value
+}
+if (pot.isCorrect) correctScore += score
+scores += Tuple(pot, score)
+}
+scores.toArray
+}
+
+def writeToFile(array: Array[Double], filename: String) {
+val fw = new java.io.FileWriter(filename)
+array.foreach{ p =>
+fw.write(p + "")
+fw.write("\n")
+}
+fw.close
+}
+
+def countExamples(filename: String): Int = {
+print("Determining number of examples in fidx file...")
+val endPattern   = """[ \n\t]*""".r
+var count = 0
+for (line <- scala.io.Source.fromFile(filename).getLines if line == "") count += 1
+println(count + ".")
+return count
+}
+}
+*/
+*/

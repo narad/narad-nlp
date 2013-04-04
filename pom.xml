@@ -120,7 +120,7 @@
 					<scalaVersion>${scala.version}</scalaVersion>
 					<jvmArgs>
 						<jvmArg>-Xms64m</jvmArg>
-						<jvmArg>-Xmx2400m</jvmArg>
+						<jvmArg>-Xmx4g</jvmArg>
 					</jvmArgs>
 				</configuration>
 			</plugin>
@@ -150,7 +150,7 @@
 					<!-- <executable>path/to/javac</executable> -->
 					<fork>true</fork>
 					<meminitial>512m</meminitial>
-					<maxmem>1024m</maxmem>
+					<maxmem>2024m</maxmem>
 					<!-- <compilerArgument>-verbose -bootclasspath ${java.home}\lib\rt.jar</compilerArgument> -->
 					<source>1.5</source>
 					<target>1.5</target>

@@ -1,12 +1,12 @@
 package narad.util
 import java.io.FileWriter
 import scala.util.Random
-import narad.io.reader.ChunkReader
+import narad.io.util.ChunkReader
 import narad.io.conll.CoNLLReader
 import narad.io.onto._
 import narad.nlp.srl.SRLDatum
 import scala.collection.mutable.HashMap
-import narad.nlp.srl.SRLFeatures
+import narad.nlp.srl.{SRLFeatures, SRLDictionary}
 
 /**
  * Created with IntelliJ IDEA.
@@ -50,6 +50,9 @@ object RandomModelTester extends SRLFeatures {
       else if (model == "SRL") {
         generateSRLExample(srl, pvsize)
       }
+      else if (model == "SRLHIDDEN") {
+        generateSRLHIDDENExample(srl, pvsize)
+      }
     }
 //    val params = Seq.fill(pvsize)(0.3135)
     val params = Seq.fill(pvsize)(Random.nextDouble())
@@ -58,19 +61,21 @@ object RandomModelTester extends SRLFeatures {
     out.close()
   }
 
-  def generateUnigramTaggerExample(size: Int, pvsize: Int) {
+  def generateUnigramTaggerExample(size: Int, pvsize: Int, nrExamples: Int = 500) {
     val out = new FileWriter("train.fidx")
-    out.write("@slen\t%d\n".format(size))
-    for (i <- 1 to size) {
-      val arity = Random.nextInt(20)+1
-      val correct = Random.nextInt(arity)+1
-      for (j <- 1 to 5) {
-        val numfeats = Random.nextInt(20)
-        val label = if (j == correct) "+" else ""
-        out.write("ulabel(%d,%d)\t%s%s\n".format(i, j-1, label, Seq.fill(numfeats+1)(Random.nextInt(pvsize-1)+1).mkString(" ")))
+    for (i <- 1 to nrExamples) {
+      out.write("@slen\t%d\n".format(size))
+      for (i <- 1 to size) {
+        val arity = Random.nextInt(20)+1
+        val correct = Random.nextInt(arity)+1
+        for (j <- 1 to 5) {
+          val numfeats = Random.nextInt(20)
+          val label = if (j == correct) "+" else ""
+          out.write("ulabel(%d,%d)\t%s%s\n".format(i, j-1, label, Seq.fill(numfeats+1)(Random.nextInt(pvsize-1)+1).mkString(" ")))
+        }
       }
+      out.write("\n")
     }
-    out.write("\n")
     out.close()
   }
 
@@ -103,7 +108,7 @@ object RandomModelTester extends SRLFeatures {
   }
 
   def generateCParserExample(treebank: String, pvsize: Int) {
-    val trees = narad.io.reader.TreebankReader.read(treebank, new ArgParser(Array[String]())).toArray
+    val trees = narad.io.tree.TreebankReader.read(treebank, new ArgParser(Array[String]())).toArray
     val t = trees(0)
     val labels: Array[String] = Array("LABEL1", "LABEL2", "LABEL3") //t.iterator.map(_.label()).toArray.flatten
     t.annotateWithIndices(0)
@@ -187,28 +192,60 @@ object RandomModelTester extends SRLFeatures {
 
   def generateSRLExample(srlFile: String, pvsize: Int) {
     val out = new FileWriter("train.fidx")
+    val dict = SRLDictionary.construct(srlFile)
+    /*
     val roles = io.Source.fromFile("srl.args").getLines.toArray
     val dict = new HashMap[String, Array[String]]
     for (line <- io.Source.fromFile("srl.senses").getLines()) {
       val cols = line.split("\t")
       dict(cols(0)) = cols(1).split(" ")
     }
-    println("ROLES: %s".format(roles.mkString(" ")))
+    */
+    println("ROLES: %s".format(dict.roles.mkString(" ")))
     val reader = new ChunkReader(srlFile)
-    val srls = reader.iterator.toArray.map{c => SRLDatum.constructFromCoNLL(c.split("\n"))}.filter{s => s.slen >= 5 && s.slen <= 40}
+    val srls = reader.iterator.toArray.map{c => SRLDatum.constructFromCoNLL(c.split("\n"))}.filter{s => s.slen <= 20 }
     val datum = srls(0) //(Random.nextInt(srls.size-1)+1)
     val slen = datum.slen
     val gpreds = datum.predicates
     out.write("@slen\t%d\n".format(slen))
     out.write("@maxdist\t%d\n".format(1000))
-    out.write("@roles\t%s\n".format(roles.mkString(" ") + " A-DUMMY"))
+    out.write("@roles\t%s\n".format(dict.roles.mkString(" ") + " A-DUMMY"))
     out.write("@gpreds\t0 %s\n".format(gpreds.mkString(" ")))
-    extractSRLFeatures(datum, roles, dict, out, labelCorrect=true, prune=false, maxdist=1000,
-      srlmode=1, sensemode=1, argfeats=true)
+    extractSRLFeatures(datum, dict, out, labelCorrect=true, prune=false, maxdist=1000, srlmode=1)
 
     extractSyntacticFeatures(datum, out, labelHidden=true, mode=1)
 
-//    extractConnectionFeatures(datum, out, labelHidden=true, gpreds=gpreds, abound=1000)
+    extractConnectionFeatures(datum, out, labelHidden=true, gpreds=gpreds, abound=1000)
+    out.write("\n")
+    out.close()
+  }
+
+  def generateSRLHIDDENExample(srlFile: String, pvsize: Int) {
+    val out = new FileWriter("train.fidx")
+    val dict = SRLDictionary.construct(srlFile)
+    /*
+    val roles = io.Source.fromFile("srl.args").getLines.toArray
+    val dict = new HashMap[String, Array[String]]
+    for (line <- io.Source.fromFile("srl.senses").getLines()) {
+      val cols = line.split("\t")
+      dict(cols(0)) = cols(1).split(" ")
+    }
+    */
+    println("ROLES: %s".format(dict.roles.mkString(" ")))
+    val reader = new ChunkReader(srlFile)
+    val srls = reader.iterator.toArray.map{c => SRLDatum.constructFromCoNLL(c.split("\n"))}.filter{s => s.slen <= 20 }
+    val datum = srls(0) //(Random.nextInt(srls.size-1)+1)
+    val slen = datum.slen
+    val gpreds = datum.predicates
+    out.write("@slen\t%d\n".format(slen))
+    out.write("@maxdist\t%d\n".format(1000))
+    out.write("@roles\t%s\n".format(dict.roles.mkString(" ") + " A-DUMMY"))
+    out.write("@gpreds\t0 %s\n".format(gpreds.mkString(" ")))
+    extractSRLFeatures(datum, dict, out, labelCorrect=true, prune=false, maxdist=1000, srlmode=1)
+
+    extractSyntacticFeatures(datum, out, labelHidden=false, mode=1)
+
+    extractConnectionFeatures(datum, out, labelHidden=false, gpreds=gpreds, abound=1000)
     out.write("\n")
     out.close()
   }

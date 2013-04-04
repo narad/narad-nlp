@@ -1,56 +1,121 @@
 package narad.nlp.tagger
 
-import collection.mutable.{HashMap, ArrayBuffer, Map}
+import collection.mutable.ArrayBuffer
 import narad.io.conll.CoNLLDatum
-import scala.util.matching.Regex
-import narad.bp.util.{Feature, PotentialExample}
+import narad.util.StringPatterns
 import narad.bp.util.index._
-import narad.bp.structure.Potential
+import scala.math.abs
+import narad.bp.util.StringFeature
 
 
-trait TaggerFeatures {
-  val NUMBER_PATTERN = new Regex(".*[0-9]+.*")
+trait TaggerFeatures extends StringPatterns {
 
-  def getFeatures(words: Array[String], tags: Array[String], dict: TagDictionary, hash: Index[String]): PotentialExample = {
-    val map  = Map[String, String]()
-    val pots = new ArrayBuffer[Potential]
-    val featmap = new HashMap[String, Array[Feature]]
+  def extractFeatures(trainFile: String, trainFeatureFile: String, dict: TagDictionary, index: Index[String], params: TaggerParams) {}
+
+  def unigramFeatures(datum: CoNLLDatum, i: Int, params: TaggerParams): Array[String] = {
+    unigramLexicalFeatures(datum.words.toArray, i, params).map(_.toString())
+  }
+
+  def unigramLexicalFeatures(words: Array[String], i: Int, params: TaggerParams): Array[StringFeature] = {
+    val feats = new ArrayBuffer[StringFeature]
     val slen = words.size
-    val alltags = dict.all.toArray
-    map("slen") = slen.toString
-    map("words") = words.mkString(" ")
-    map("bigram") = "false"
-    for (i <- 1 to slen) {
-      val word = words(i)
-      val feats = unigramLexicalFeatures(words, i)
-      val dtags = if (dict.contains(word)) dict.tags(word).toArray else alltags
-      dtags.zipWithIndex.foreach { case(tag, tidx) =>
-        val name = "ulabel(%d,%s)".format(i, tag)
-        val correct = tags.size > 0 && tag == tags(i)
-        pots += new Potential(0.0, name, correct)
-        featmap(name) = feats.view.map("%s_%s".format(tag, _)).map(s => new Feature(hash.index(s), 1.0, 0)).toArray
-      }
+    val word = words(i-1)
+    feats += new StringFeature("[bias]", 1, 0)
+    feats += new StringFeature("[form]-%s".format(word.toLowerCase), 1, 0)
+    if (params.FEATURE_MODE > 1) {
+      feats += new StringFeature("[isCap]-%s".format(isCapitalized(word).toString), 1, 0)
+     // feats += "[form-isCap]-%s-%s".format(word.toLowerCase(), isCapitalized(word).toString)
+      feats += new StringFeature( if (i > 1) "[prev]-%s".format(words(i-2).toLowerCase) else "[prev]-START", 1, 0)
+      feats += new StringFeature(if (i < slen) "[next]-%s".format(words(i).toLowerCase) else "[next]-END", 1, 0)
     }
-    return new PotentialExample(map, pots.toArray, featmap)
-  }
 
-  def extractFeatures(trainFile: String, trainFeatureFile: String, dict: TagDictionary, params: TaggerParams) = {}
-
-
-  def capitalized(str: String): Boolean = {
-    str.toUpperCase == str
-  }
-
-  def bigramFeatures(datum: CoNLLDatum, fidx: Int, tidx: Int,
-                     useMorph: Boolean, useSyntax: Boolean): Array[String] = {
-    val feats = new ArrayBuffer[String]
-    val ffeats = unigramFeatures(datum, fidx, offset=0, useMorph=useMorph, useSyntax=useSyntax)
-    val tfeats = unigramFeatures(datum, tidx, offset=1, useMorph=useMorph, useSyntax=useSyntax)
-    for (ffeat <- ffeats; tfeat <- tfeats) {
-      feats += ffeat + "_" + tfeat
+    if (params.FEATURE_MODE > 2) {
+      for (ss <- 1 to 3 if ss < word.size) {
+        feats += new StringFeature("[suffix]-%s".format(word.substring(word.size-ss)), 1, 0)
+      }
     }
     return feats.toArray
   }
+
+  def bigramFeatures(datum: CoNLLDatum, fidx: Int, tidx: Int, params: TaggerParams): Array[String] = {
+    bigramLexicalFeatures(datum.words.toArray, fidx, tidx, params)
+  }
+
+  def bigramLexicalFeatures(words: Array[String], fidx: Int, tidx: Int, params: TaggerParams): Array[String] = {
+    val feats = new ArrayBuffer[String]
+    val w1 = words(fidx-1)
+    val w2 = words(tidx-1)
+    val dist = abs(tidx - fidx)
+    val dir = if (tidx > fidx) "RIGHT" else "LEFT"
+    feats += "[bias]"
+    feats += "[form]-%s-%s".format(w1.toLowerCase, w2.toLowerCase)
+    feats += "[dist]-%d".format(dist)
+    feats += "[dir]-%s".format(dir)
+    feats += "[dir-dis]-%s-%d".format(dir, dist)
+
+    if (params.FEATURE_MODE > 1) {
+      feats += "[isCap]-%s-%s".format(isCapitalized(w1).toString, isCapitalized(w2).toString)
+    }
+
+    if (params.FEATURE_MODE > 2) {
+      for (ss <- 1 to 3 if ss < w1.size && ss < w2.size) {
+        feats += "[suffix]-%s-%s".format(w1.substring(w1.size-ss), w2.substring(w2.size-ss))
+      }
+    }
+    return feats.toArray
+  }
+
+  def groupedBigramLexicalFeatures(words: Array[String], fidx: Int, tidx: Int, params: TaggerParams): Array[StringFeature] = {
+    val feats = new ArrayBuffer[StringFeature]
+    val w1 = words(fidx-1)
+    val w2 = words(tidx-1)
+    val dist = abs(tidx - fidx)
+    val dir = if (tidx > fidx) "RIGHT" else "LEFT"
+    feats += StringFeature("[bias]", 1.0, 0)
+    feats += StringFeature("[form]-%s-%s".format(w1.toLowerCase, w2.toLowerCase), 1.0, 0)
+    feats += StringFeature("[dist]-%d".format(dist), 1.0, 0)
+    feats += StringFeature("[dir]-%s".format(dir), 1.0, 0)
+    feats += StringFeature("[dir-dis]-%s-%d".format(dir, dist), 1.0, 0)
+
+    if (params.FEATURE_MODE > 1) {
+      feats += StringFeature("[isCap]-%s-%s".format(isCapitalized(w1).toString, isCapitalized(w2).toString), 1.0, 0)
+    }
+
+    if (params.FEATURE_MODE > 2) {
+      for (ss <- 1 to 3 if ss < w1.size && ss < w2.size) {
+        feats += StringFeature("[suffix]-%s-%s".format(w1.substring(w1.size-ss), w2.substring(w2.size-ss)), 1.0, 0)
+      }
+    }
+    return feats.toArray
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
 
   def unigramFeatures(datum: CoNLLDatum, i: Int, offset: Int = 0, useMorph: Boolean, useSyntax: Boolean): Array[String] = {
     val feats = new ArrayBuffer[String]
@@ -60,7 +125,7 @@ trait TaggerFeatures {
     feats += "[bias]"
     feats += "[form-%d]-%s".format(offset, datum.form(i).toLowerCase)
 
-    val advancedFeats = true
+    val advancedFeats = false
     if (advancedFeats) {
       // Context Features
       for (p <- 1 to 3) {
@@ -120,45 +185,16 @@ trait TaggerFeatures {
     return feats.toArray
   }
 
-  def correct(datum: CoNLLDatum, i: Int, mode: String): String = {
-    mode match {
-      case "COARSE" => datum.cpostag(i)
-      case "FINE"   => datum.postag(i)
-      case "CASE"   => datum.mcase(i)
-      case "GENDER" => datum.mgender(i)
-      case "NUMBER" => datum.mnumber(i)
-      case "CASE+GENDER+NUMBER" => datum.mcase(i) + "|" + datum.mgender(i) + "|" + datum.mnumber(i)
-      case _ => ""
-    }
-  }
 
 
 
-
-
-
-
-
-
-
-
-
-  def bigramLexicalFeatures(words: Array[String], fidx: Int, tidx: Int): Array[String] = {
-    val feats = new ArrayBuffer[String]
-    val ffeats = unigramLexicalFeatures(words, fidx, offset=0)
-    val tfeats = unigramLexicalFeatures(words, tidx, offset=1)
-    for (ffeat <- ffeats; tfeat <- tfeats) {
-      feats += ffeat + "_" + tfeat
-    }
-    return feats.toArray
-  }
 
   def unigramLexicalFeatures(words: Array[String], i: Int, offset: Int = 0): Array[String] = {
     val feats = new ArrayBuffer[String]
     val slen = words.size
     val word = words(i)
 
-    feats += "[bias]"
+ //   feats += "[bias]"
     feats += "[form-%d]-%s".format(offset,words(i).toLowerCase)
 
     val advancedFeats = true
@@ -196,29 +232,134 @@ trait TaggerFeatures {
     }
     return feats.toArray
   }
+
+  def bigramLexicalFeatures(words: Array[String], fidx: Int, tidx: Int): Array[String] = {
+    val feats = new ArrayBuffer[String]
+    val ffeats = unigramLexicalFeatures(words, fidx, offset=0)
+    val tfeats = unigramLexicalFeatures(words, tidx, offset=1)
+    for (ffeat <- ffeats; tfeat <- tfeats) {
+      feats += ffeat + "_" + tfeat
+    }
+    return feats.toArray
+  }
+
+  def bigramFeatures(datum: CoNLLDatum, fidx: Int, tidx: Int,
+                     useMorph: Boolean, useSyntax: Boolean): Array[String] = {
+    val feats = new ArrayBuffer[String]
+    val words = datum.words.toArray
+    // println(fidx + ":" + tidx)
+    val w1 = words(fidx-1)
+    val w2 = words(tidx-1)
+    feats += "[bias]"
+    //    feats += "[form]-%s-%s".format(w1, w2)
+    //    feats += "[lemma]-%s-%s".format(w1.toLowerCase, w2.toLowerCase)
+    // is cap
+    // is cap + non-initial
+    //   feats += "contains-number-%s-%s".format(NUMBER_PATTERN.pattern.matcher(w1).matches.toString, NUMBER_PATTERN.pattern.matcher(w2).matches.toString)
+    //   feats += "contains-cap-%s-%s".format(w1 == w1.toUpperCase, w2 == w2.toUpperCase)
+    //   feats += "contains-hyphen-%s-%s".format(w1.contains("-").toString, w2.contains("-").toString)
+
+
+    /*
+    val ffeats = unigramFeatures(datum, fidx, offset=0, useMorph=useMorph, useSyntax=useSyntax)
+    val tfeats = unigramFeatures(datum, tidx, offset=1, useMorph=useMorph, useSyntax=useSyntax)
+    for (ffeat <- ffeats; tfeat <- tfeats) {
+      feats += ffeat + "_" + tfeat
+    }
+    */
+    return feats.toArray
+  }
+}
+ */
+/*
+def correct(datum: CoNLLDatum, i: Int, mode: String): String = {
+  mode match {
+    case "COARSE" => datum.cpostag(i)
+    case "FINE"   => datum.postag(i)
+    case "CASE"   => datum.mcase(i)
+    case "GENDER" => datum.mgender(i)
+    case "NUMBER" => datum.mnumber(i)
+    case "CASE+GENDER+NUMBER" => datum.mcase(i) + "|" + datum.mgender(i) + "|" + datum.mnumber(i)
+    case _ => ""
+  }
+}
+*/
+
+
+
+/*
+ def unigramStringFeatures(words: Array[String], i: Int, offset: Int = 0): Array[String] = {
+ val idx = i-1
+ val feats = new ArrayBuffer[String]
+ val slen = words.size
+ val word = words(idx)
+
+ feats += "[bias]"
+ feats += "[form]-%s".format(word)
+ feats += "[lemma]-%s".format(word.toLowerCase)
+ // is cap
+ // is cap + non-initial
+//    feats += "contains-number-%s".format(NUMBER_PATTERN.pattern.matcher(word).matches.toString)
+//    feats += "contains-cap-%s".format(word == word.toUpperCase)
+//    feats += "contains-hyphen-%s".format(word.contains("-").toString)
+
+
+ val advancedFeats = false
+ if (advancedFeats) {
+   // Context Features
+   for (p <- 1 to 3) {
+     if (idx-p > 0) {
+       feats += "[prev-%d-%s]".format(p, words(idx-p))
+       feats += "[prev-concat-%d-%s]".format(p, words.slice(idx-p, p).mkString("-"))
+     }
+     else {
+       feats += "[prev-%d-START]".format(p)
+     }
+     if (idx+p <= slen) {
+       feats += "[post-%d-%s]".format(p, words(idx+p))
+       feats += "[post-concat-%d-%s]".format(p, words.slice(p, p+idx).mkString("-"))
+     }
+     else {
+       feats += "[post-%d-END]".format(p)
+     }
+   }
+
+   // Substring pseudo-morph features
+   for (b <- 1 to 4 if word.size >= b) {
+     feats += "prefix-%d-%s".format(b, word.substring(0, b))
+     feats += "suffix-%d-%s".format(b, word.substring(word.size-b))
+   }
+
+   // Contains Number
+   feats += "contains-number-%s".format(NUMBER_PATTERN.pattern.matcher(word).matches.toString)
+   // Contains Uppercase Character
+   feats += "contains-cap-%s".format(word == word.toUpperCase)
+   // Contain Hyphen
+   feats += "contains-hyphen-%s".format(word.contains("-").toString)
+ }
+ feats.toArray
 }
 
+def bigramStringFeatures(words: Array[String], hidx: Int, didx: Int): Array[String] = {
+ val feats = new ArrayBuffer[String]
+/*
+ feats += "[bias]"
+ feats += "[lemma]-%s".format(word.toLowerCase)
+ feats += "[cap]-%s".format(word)
+ feats += "[form]-%s".format(word)
+  */
+ return feats.toArray
+}
 
+/*
+ val ffeats = unigramStringFeatures(words, hidx, offset=0)
+ val tfeats = unigramStringFeatures(words, didx, offset=1)
+ for (ffeat <- ffeats; tfeat <- tfeats) {
+   feats += ffeat + "_" + tfeat
+ }
+*/
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+*/
 
 
 /*

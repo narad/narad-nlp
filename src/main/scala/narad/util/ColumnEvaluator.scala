@@ -53,11 +53,11 @@ object ColumnEvaluator {
 //		val osign = offsetstr.substring(0,1)
 //		val ovalue = offsetstr.substring(1).toInt
 //		assert(osign == "+" || osign == "-")
-		val reader = LineReader.read(goldFile, options).zip(LineReader.read(testFile, options))
+		val util = LineReader.read(goldFile, options).zip(LineReader.read(testFile, options))
 		val corrects = new Array[Int](numcols)
 		val comps = new Array[Int](numcols)
 	
-		for (pair <- reader if (!pair._1.isEmpty && !pair._2.isEmpty)) {
+		for (pair <- util if (!pair._1.isEmpty && !pair._2.isEmpty)) {
 			val goldCols = pair._1.split(delim)
 			val testCols = pair._2.split(delim)
 //			println(testCols())

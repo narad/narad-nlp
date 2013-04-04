@@ -109,6 +109,8 @@ class SRLDatum(grid: Array[Array[String]]) {
 	def sense(i: Int) = grid(i-1)(13)
 	
 	def slen = grid.size
+
+  def words = forms
 	
 	def tokens: Array[SRLToken] = {
 		(1 to slen).toArray.map{i => new SRLToken(form(i), lemma(i), postag(i), ppostag(i), feat(i))}
@@ -382,7 +384,7 @@ object SRLDatum {
 			//			println(cols.mkString("||"))
 			format match {
 				case "CoNLL08" => {
-					System.err.println("No reader present for CoNLL08")
+					System.err.println("No util present for CoNLL08")
 					System.exit(1)
 				}				
 				// ID FORM LEMMA PLEMMA POS PPOS FEAT PFEAT HEAD PHEAD DEPREL PDEPREL FILLPRED PRED APREDs

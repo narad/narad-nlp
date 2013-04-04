@@ -16,3 +16,20 @@ object HarmonicMean {
 		System.out.println(hm)
 	}
 }
+
+object Math {
+
+//  def combinations(elems: Array[T], k: Int): Array[Array[T]] = {
+//  }
+
+/*
+  def groupings(elems: Seq[T], k: Int): Array[Array[T]] = {
+
+  }
+
+*/
+
+  def harmonicMean(x: Double, y: Double): Double = {
+    2 * (x * y) / (x + y)
+  }
+}

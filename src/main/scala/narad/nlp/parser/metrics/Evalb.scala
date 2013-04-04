@@ -1,7 +1,8 @@
 package narad.nlp.parser.metrics
 import java.text.DecimalFormat
 import narad.nlp.trees.ConstituentTree
-import narad.io.reader.{TreebankReader, ZippedReader}
+import narad.io.util.ZippedReader
+import narad.io.tree.TreebankReader
 import narad.util.{ArgParser, HashCounter}
 import scala.collection.mutable.{HashMap, HashSet}
 
@@ -12,8 +13,8 @@ object EvalContainer {
 		testTree.annotateWithIndices(0)
 		val goldTokens = goldTree.tokens()
 		val testTokens = testTree.tokens()
-		val goldSpans = goldTree.getSpans.toArray
-		val testSpans = testTree.getSpans.toArray
+		val goldSpans = goldTree.spans.toArray
+		val testSpans = testTree.spans.toArray
 
 		val labels = (goldSpans ++ testSpans).map(_.label).distinct
 
@@ -111,7 +112,7 @@ object Evalb {
 		assert(gparses.size == tparses.size, "Files not equal in length.")
 
 		val labels = new HashSet[String]
-		for (p <- (gparses ++ tparses)) p.getSpans.map(_.label).foreach(labels += _)
+		for (p <- (gparses ++ tparses)) p.spans.map(_.label).foreach(labels += _)
 
 		var evals = gparses.zip(tparses).map(p => EvalContainer.construct(p._1, p._2))
 		var stats = evals.foldLeft(new EvalContainer)(_.combine(_))

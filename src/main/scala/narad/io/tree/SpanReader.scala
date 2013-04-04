@@ -1,8 +1,8 @@
-package narad.io.reader
+package narad.io.tree
+
 import narad.nlp.trees._
 import narad.util.ArgParser
 import scala.collection.mutable.ArrayBuffer
-import scala.util.matching.Regex
 
 object SpanReader {
 	val bpdpBracketSpanPattern = """([0-9]+)\t([0-9]+)\t([0-9]+).*""".r
@@ -42,7 +42,7 @@ object SpanReader {
 					case _=>
 				}
 			}
-			val tree = spansToTree(spans.toArray, slen)
+			val tree = TreeFactory.constructFromSpans(spans.toArray, slen)
 			tree.annotateWithIndices()
 			tree.setYield(words, tags)
 			trees += tree
@@ -50,40 +50,27 @@ object SpanReader {
 		}
 		return trees.toArray //.iterator //null.asInstanceOf[Iterable[ConstituentTree]]
 	}
-	
-	def spansToTree(spans: Array[Span], slen: Int): ConstituentTree = {
-		return TreeFactory.buildTree(label="TOP", 
-							children=findChildren(spans.sortBy(_.width).reverse, 0, slen))
-	}
-
-	def findChildren(spans: Array[Span], start: Int, end: Int): Array[ConstituentTree] = {
-		val children = new ArrayBuffer[ConstituentTree]
-		val max = findMaxSpan(spans, start, end)
-		max match {
-			case None => return Array.fill(end-start)(TreeFactory.buildTree(label="TAG", children=Array()))
-			case Some(maxspan) => {
-				if (maxspan.start > start) {
-					val leftChildren = findChildren(spans, start, maxspan.start)
-					if (leftChildren.size > 0) children ++= leftChildren
-				}
-				val cchildren = findChildren(spans.filter(_ != maxspan), maxspan.start, maxspan.end)
-				children += TreeFactory.buildTree(label=maxspan.label, children=cchildren)
-				if (maxspan.end < end) {
-					val rightChildren = findChildren(spans, maxspan.end, end)
-					if (rightChildren.size > 0) children ++= rightChildren	
-				}
-				return children.toArray	
-			}
-		}
-	}
-
-	def findMaxSpan(spans: Array[Span], start: Int, end: Int): Option[Span] = {
-		for (span <- spans) {
-			if (span.start >= start && span.end <= end) return Some(span)
-		}
-		return None
-	}
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 //		for (h <- header.findAllIn(io.Source.fromFile(filename).getLines.mkString("\n"))) {
 //			println(h)

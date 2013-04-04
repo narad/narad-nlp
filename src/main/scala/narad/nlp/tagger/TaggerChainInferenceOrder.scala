@@ -42,13 +42,13 @@ trait TaggerChainInference extends InferenceOrder {
 trait TaggerChainInference extends InferenceOrder {
 
   override def messageOrder(graph: FactorGraph): Iterator[MessageNode] = {
-    System.err.println("Using TaggerChain Inference Order...")
-    println(graph.toString)
+ //   System.err.println("Using TaggerChain Inference Order...")
+//    println(graph.toString)
     val idxpattern = new Regex(".*\\(([0-9]+)[^0-9].*")
     val mqueue = scala.collection.mutable.Queue[MessageNode]()
     val groups = graph.nodes.groupBy{node =>
-      val idxpattern(idx) = node.name
-      idx
+      val idxpattern(time) = node.name
+      time
     }
     val slen = groups.size
 
@@ -59,10 +59,11 @@ trait TaggerChainInference extends InferenceOrder {
     }
     for (i <- 1 to slen) {
       val inodes = groups(i.toString)
-      println("TEST: " + i + " = " + inodes.mkString)
+//      println("TEST: " + i + " = " + inodes.mkString)
       inodes.foreach{n => if (n.isVariable)  mqueue += n}
       inodes.foreach{n => if (n.isFactor && n.arity > 1) mqueue += n}
     }
+ //   for (m <- mqueue) println(m.name)
     (mqueue ++ mqueue.reverse).iterator
   }
 

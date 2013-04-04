@@ -61,6 +61,17 @@ class CoNLLDatum(grid: Array[Array[String]]) {
 	
 	def words = forms
 
+  def getAttribute(i: Int, mode: String): String = {
+    mode match {
+      case "COARSE" => cpostag(i)
+      case "FINE"   => postag(i)
+      case "CASE"   => mcase(i)
+      case "GENDER" => mgender(i)
+      case "NUMBER" => mnumber(i)
+      case "CASE+GENDER+NUMBER" => mcase(i) + "|" + mgender(i) + "|" + mnumber(i)
+      case _ => ""
+    }
+  }
 
   // Morph Accessors
 //  -|p|-|-|-|n|n|-
@@ -74,8 +85,8 @@ class CoNLLDatum(grid: Array[Array[String]]) {
   }
 
   def mgender(i: Int): String = {
-    val cols = feat(i).toLowerCase.split("|")
-    if (cols.size == 8) return cols(7)
+    val cols = feat(i).toLowerCase.split("\\|")
+    if (cols.size == 8) return cols(5)
     for (i <- 0 until cols.size) {
       if (cols(i).contains("gen")) return cols(i)
     }
@@ -83,10 +94,19 @@ class CoNLLDatum(grid: Array[Array[String]]) {
   }
 
   def mnumber(i: Int): String = {
-    val cols = feat(i).toLowerCase.split("|")
+    val cols = feat(i).toLowerCase.split("\\|")
     if (cols.size == 8) return cols(1)
     for (i <- 0 until cols.size) {
       if (cols(i).contains("num")) return cols(i)
+    }
+    return ("-")
+  }
+
+  def mperson(i: Int): String = {
+    val cols = feat(i).toLowerCase.split("\\|")
+    if (cols.size == 8) return cols(0)
+    for (i <- 0 until cols.size) {
+      if (cols(i).contains("per")) return cols(i)
     }
     return ("-")
   }

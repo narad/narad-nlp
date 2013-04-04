@@ -1,4 +1,4 @@
-package narad.io.reader
+package narad.io.util
 
 object ZippedReader {
 	private var processed1 = 0

@@ -2,7 +2,7 @@ package narad.nlp.trees
 
 
 	
-	case class Span(left: Int, right: Int, label: String, unary: Boolean=true) {
+	case class Span(left: Int, right: Int, label: String, var height: Int=0) {
 		
 		def width: Int = right - left	
 		
@@ -24,7 +24,7 @@ package narad.nlp.trees
 			case _=> false
 		}
 		
-		def isUnary = unary
+		def isUnary = height > 0
 				
 		def start = left				
 

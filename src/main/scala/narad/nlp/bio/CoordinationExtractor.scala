@@ -5,7 +5,7 @@ import util.parsing.input.{Position, Reader}
 import collection.mutable.ArrayBuffer
 import narad.util.ArgParser
 import narad.nlp.trees.{ConstituentTree => ConstituencyTree}
-import narad.io.reader.TreebankReader
+import narad.io.tree.TreebankReader
 
 /*
 
@@ -237,8 +237,8 @@ Coord
 | GENE
 )
 
-def parse(reader: Reader[Any]): ParseResult[List[Coordination]] = {
-phrase(Sentence)(reader).map(_.collect({
+def parse(util: Reader[Any]): ParseResult[List[Coordination]] = {
+phrase(Sentence)(util).map(_.collect({
 case c: Coordination => c
 }))
 }

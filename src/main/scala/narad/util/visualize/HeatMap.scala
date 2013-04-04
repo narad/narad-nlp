@@ -1,6 +1,7 @@
 package narad.util.visualize
 import scala.collection.mutable.ArrayBuffer
 import java.io.File
+import narad.stats.ConditionalProbabilityTable
 
 class HeatMap(grid: Array[Array[Double]], xlabels: Array[String], ylabels: Array[String]) {
 
@@ -58,4 +59,20 @@ class HeatMap(grid: Array[Array[Double]], xlabels: Array[String], ylabels: Array
 		out.write(ab.mkString("\n"))
 		out.close()
 	}
+}
+
+
+object HeatMap {
+
+  def constructFromCPT(cpt: ConditionalProbabilityTable[String], events: Array[String], contexts: Array[String]): HeatMap = {
+    val grid = Array.ofDim[Double](events.size, contexts.size)
+    for (e <- 0 until events.size; c <- 0 until contexts.size) {
+      val p = cpt.conditionalProbability(events(e), contexts(c))
+      grid(e)(c) = truncate(p)
+    }
+    new HeatMap(grid, events, contexts)
+  }
+
+  def truncate(x: Double) = math.round(x*1000)*0.001
+
 }

@@ -1,12 +1,15 @@
 package narad.nlp.parser.constituent
 
 import java.io.FileWriter
-import narad.io.reader.TreebankReader
+import narad.io.tree.TreebankReader
 import narad.nlp.trees.{Token, ConstituentTree}
-import collection.mutable.{HashSet, ArrayBuffer}
+import collection.mutable.{HashMap, HashSet, ArrayBuffer, Map}
 import math.min
 import narad.nlp.trees.Token
 import narad.nlp.trees.ConstituentTree
+import narad.bp.util.{Feature, PotentialExample}
+import narad.bp.structure.Potential
+import narad.bp.util.index._
 
 /**
  * Created with IntelliJ IDEA.
@@ -19,19 +22,24 @@ class ConstituentBracketParser(params: ConstituentParserParams) extends Constitu
 
 trait ConstituentBracketFeatures extends ConstituentParserFeatures {
 
-  def extractFeatures(trainFile: String, trainFeatureFile: String, labels: Array[String],
-                      ulabels: Array[String], params: ConstituentParserParams) = {
+  def extractFeatures(trainFile: String, trainFeatureFile: String, stats: TreebankStatistics, index: Index[String], params: ConstituentParserParams) = {
+    println("Extracting bracket features")
     val out = new FileWriter(trainFeatureFile)
     val reader = new TreebankReader(trainFile)
+    var startTime = System.currentTimeMillis()
     reader.zipWithIndex.foreach { case(tree, i) =>
       if (i % params.PRINT_INTERVAL == 0) System.err.println("  example %d...".format(i))
       val slen = tree.slen
       out.write("@slen\t%d\n".format(slen))
+      out.write("@words\t%s\n".format(tree.words.mkString(" ")))
+      out.write("@tags\t%s\n".format(tree.tags.mkString(" ")))
       val btree = tree.binarize.removeUnaryChains
       btree.annotateWithIndices()
       extractBracketFeatures(btree, out, params)
       out.write("\n")
     }
+    out.close()
+    if (params.TIME) System.err.println("Finished Feature Extraction [%fs.]".format((System.currentTimeMillis() - startTime) / 1000.0))
   }
 
   def extractBracketFeatures(tree: ConstituentTree, out: FileWriter, params: ConstituentParserParams) {
@@ -45,6 +53,25 @@ trait ConstituentBracketFeatures extends ConstituentParserFeatures {
     }
   }
 
+  def getBracketFeatures(tree: ConstituentTree, index: Index[String], params: ConstituentParserParams): PotentialExample = {
+    val attributes  = Map[String, String]()
+    val potentials = new ArrayBuffer[Potential]
+    val featureMap = new HashMap[String, Array[Feature]]
+    val BRACK_NAME = params.BRACK_NAME
+    val slen = tree.slen
+    attributes("slen") = slen.toString
+    for ( width <- 2 to slen; start <- 0 to (slen - width)) {
+      val end = start + width
+      val feats = constituentSpanFeatures(tree.tokens(), start, end, params)
+      val isCorrect = tree.containsSpan(start, end)
+      val potname = "%s(%d,%d)".format(BRACK_NAME, start, end)
+      potentials += new Potential(1.0, potname, isCorrect)
+      featureMap(potname) = feats.map(f => new Feature(index.index(f), 1.0, 0))
+
+//      out.write("%s(%d,%d)\t%s%s\n".format(BRACK_NAME, start, end, if (isCorrect) "+" else "", feats.mkString(" ")))
+    }
+    new PotentialExample(attributes, potentials, featureMap)
+  }
 
 
 

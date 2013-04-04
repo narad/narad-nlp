@@ -2,7 +2,7 @@ package narad.nlp.ner
 import java.io.{File, FileWriter}
 import narad.io.onto.{OntoDatum, OntoReader}
 
-import narad.nlp.ling.Lexicon
+//import narad.nlp.ling.Lexicon
 import narad.nlp.trees.Token
 import narad.util.ArgParser
 import scala.collection.mutable.ArrayBuffer
@@ -18,11 +18,11 @@ object NamedEntityFeatureExtraction {
 		val min = options.getInt("--min", 0)
 		System.err.println("%d dictionaries found...".format(dictionaries.size))
 		for (dict <- dictionaries) System.err.println("Loaded dictionary: %s (%d)".format(dict.name, dict.size))
-		val reader = OntoReader.read(nerFile, syntaxFile, options)
+		val util = OntoReader.read(nerFile, syntaxFile, options)
 		var i = 1
 		val out = new FileWriter(outputFile)
 		System.err.print("Processing.")
-		for (datum <- reader if datum.size >= min) {
+		for (datum <- util if datum.size >= min) {
 			if (i % printInterval == 0) System.err.print("...%d".format(i))
 			featureExtraction(datum, labels, out, dictionaries, options)
 			i += 1

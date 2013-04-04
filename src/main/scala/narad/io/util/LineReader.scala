@@ -1,4 +1,4 @@
-package narad.io.reader
+package narad.io.util
 import narad.util.ArgParser
 
 object LineReader {	
@@ -20,7 +20,7 @@ object LineReader {
 
 
 
-/*package narad.io.reader
+/*package narad.io.util
 import narad.util.ArgParser
 
 object LineReader {	

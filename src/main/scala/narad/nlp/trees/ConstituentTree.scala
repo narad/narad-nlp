@@ -4,6 +4,7 @@ package narad.nlp.trees
 import scala.collection.mutable.{ArrayBuffer, HashMap, HashSet}
 import narad.nlp.ling.TaggedToken
 import narad.structure.tree.Tree
+import collection.mutable
 
 
 case class ConstituentNode(label: String) {}
@@ -15,10 +16,27 @@ trait TreeAnnotation {
   def label
 }
 
-case class ConstituentTree(annotation: Annotation, children: Array[ConstituentTree]) extends Iterator[ConstituentTree]{ //extends Tree[Constituent](children)
-	
+case class ConstituentTree(annotation: Annotation, children: Array[ConstituentTree]) extends Iterable[ConstituentTree] { // Iterator[ConstituentTree]{ //extends Tree[Constituent](children)
+  var len = -1
+  var ispans = null.asInstanceOf[Array[Array[ArrayBuffer[Span]]]]
+  var indexed = false
+
+  def index() = {
+    var l = tokens().size+1+1
+    ispans = Array.fill(l,l)(new ArrayBuffer[Span])
+    for (t <- this) {
+      ispans(t.start())(t.end()) += Span(t.start(), t.end(), t.label())
+    }
+    for (i <- 0 until ispans.size; j <- 0 until ispans(i).size) {
+      for (k <- 0 until ispans(i)(j).size) ispans(i)(j)(k).height = ispans(i)(j).size - k - 1
+    }
+    len = l
+    indexed = true
+  }
 
 	def label(): String = annotation("label")
+  def setLabel(l: String) = annotation("label") = l
+
 	def word(): String = annotation("word")
 	def start(): Int = annotation("start").toInt
 	def end(): Int = annotation("end").toInt
@@ -26,13 +44,38 @@ case class ConstituentTree(annotation: Annotation, children: Array[ConstituentTr
 	def isBinarized: Boolean = label().contains("@")
 	def isUnary: Boolean = isUnaryRewrite
 	def isRoot: Boolean = label == "TOP"
-	def toSpan: Span = Span(start(), end(), label(), isUnary)
-	
+//	def toSpan: Span = Span(start(), end(), label(), isUnary)
+  def words = tokens.map(_.word)
+  def tags = tokens.map(_.pos)
 	def slen = tokens().size
 
-  def getSpans: Iterator[Span] = {
-		return (for (t <- this if !t.isLeaf) yield Span(t.start(), t.end(), t.label(), t.isUnary))
-	}
+  def nonterminals: Iterator[ConstituentTree] = {
+    this.iterator.filter(!_.isLeaf)//.map(_.label)
+    //(for (t <- this if !t.isLeaf) yield t.label())
+  }
+
+  def preterminals: Iterator[ConstituentTree] = {
+    this.iterator.filter(_.isLeaf)//.map(_.label)
+    //    (for (t <- this if t.isLeaf) yield t.label())
+  }
+
+  def rules: Iterator[Rule] = {
+    preterminals.map(p => Rule(p.label(), p.children.map(_.label())))
+    //    (for (t <- this if !t.isPreterminal) yield Rule(t.label(), t.children.map(_.label())).toString)
+  }
+
+  /*
+  def spans: Iterator[Span] = {
+    (for (t <- this) yield Span(t.start(), t.end(), t.label(), t.isUnary))
+  }
+  */
+
+  def spans: Array[Span] = {
+    if (!indexed) index()
+    val sa = new ArrayBuffer[Span]()
+    for (i <- 0 until ispans.size; j <- 0 until ispans(i).size; k <- 0 until ispans(i)(j).size) sa += ispans(i)(j)(k)
+    sa.toArray
+  }
 
 	def removeTop = {
 		assert(children.size == 1, "Error: cannot remove top tree node because it has more than one child: \n%s".format(toString()))
@@ -42,22 +85,11 @@ case class ConstituentTree(annotation: Annotation, children: Array[ConstituentTr
 	def labels(start: Int, end: Int): HashSet[String] = {
 		if (!indexed) index()
 		val sets = new HashSet[String]
-		spans(start)(end).map(_.label).foreach(sets += _)
+		ispans(start)(end).map(_.label).foreach(sets += _)
 		sets
 	}
 
-  var len = -1
-	var spans = null.asInstanceOf[Array[Array[ArrayBuffer[Span]]]]
-	var indexed = false
-  def index() = {
-		var l = tokens().size+1+1
-		spans = Array.fill(l,l)(new ArrayBuffer[Span])
-		for (t <- this) {
-			spans(t.start())(t.end()) += Span(t.start(), t.end(), t.label(), t.isUnary)
-		}
-		len = l
-		indexed = true 
-	}
+
 
 	def isLeaf: Boolean = {
 		return children.size == 0
@@ -70,29 +102,91 @@ case class ConstituentTree(annotation: Annotation, children: Array[ConstituentTr
 	def containsSpan(s: Int, e: Int): Boolean = {
 		if (!indexed)  index()
 		if (e > len) return false
-		spans(s)(e).size > 0
+		ispans(s)(e).size > 0
 	}
 	
 	def containsSpan(start: Int, end: Int, label: String): Boolean = {
 		if (!indexed)  index()
 		if (end	> len) return false
-		spans(start)(end).toArray.filter(_.label == label).size > 0
+		ispans(start)(end).toArray.filter(_.label == label).size > 0
 	}
 	
 	def containsUnarySpan(start: Int, end: Int): Boolean = {
 		if (!indexed)  index()
     if (end > len) return false
-		spans(start)(end).toArray.filter(_.isUnary).size > 0
+		ispans(start)(end).toArray.filter(_.isUnary).size > 0
 	}
 
 	def containsUnarySpan(start: Int, end: Int, label: String): Boolean = {
     if (end	> len)
     	return false
 		if (!indexed) index()
-		val uns = spans(start)(end).toArray.filter(_.isUnary)
+		val uns = ispans(start)(end).toArray.filter(_.isUnary)
 		return uns.size > 0 && uns(0).label == label
 //		spans(start)(end).toArray.filter(s => s.label == label && s.isUnary).size > 0
 	}
+
+
+  override def slice(s: Int, e: Int): ConstituentTree = {
+//    println("SLICING THIS: " + this.toString())
+//    println("Slicing %d -> %d".format(s, e))
+    val ospans = spans.toArray
+//    println("ORIGINAL SPANS\n")
+//    ospans.foreach(sp => println("  -o- " + sp.toString()))
+
+    val fspans = ospans.filter{span => span.start >= s && span.end <= e && (span.end-span.start > 1 || span.isUnary)}
+//    println("FILTERED SPANS\n")
+//    ospans.foreach("  -f- " + _.toString())
+
+//    val ss = spans.toArray.filter{span => span.start >= s && span.end <= e && (span.end-span.start > 1 && !span.isUnary)}
+    val ss2 = fspans.map{span => Span(span.start-s, span.end-s, span.label, span.height)}
+     //(for (t <- this) yield Span(t.start(), t.end(), t.label(), t.isUnary)).toArray //.filter{span => span.start >= s && span.end <= end}
+//    println(ss2.mkString("\n"))
+    val t = TreeFactory.constructFromSpans(ss2, e-s)
+    t.annotateWithIndices(0)
+    t.setYield(words.slice(s,e), tags.slice(s,e))
+    t
+  }
+
+  /*
+    for (t <- this) {
+      if (t.start() == s) return t.clone()
+    }
+    return null.asInstanceOf[ConstituentTree]
+  }
+
+  override def clone: ConstituentTree = {
+    new ConstituentTree(this.annotation.clone(), this.children.map(_.clone))
+  }
+/*
+  override def slice(s: Int, e: Int): ConstituentTree = {
+    val ss = (for (t <- this) yield Span(t.start(), t.end(), t.label(), t.isUnary)).toArray //.filter{span => span.start >= s && span.end <= end}
+    println(ss.mkString("\n"))
+    TreeFactory.constructFromSpans(ss, slen)
+  }
+  */
+
+
+ /*
+  override def slice(s: Int, e: Int): ConstituentTree = {
+    println("-- %d before".format(children.size))
+    val kids = this.children.toArray.filter{c =>
+      println("Child = %s (%d, %d)".format(c.label, c.start, c.end))
+      c.start() >= s || c.end() <= e}.map(_.slice(s, e)).toArray
+    println("-- %d after".format(kids.size))
+    println
+
+    return ConstituentTree(this.annotation, kids)
+
+*/
+    /*
+    new ConstituentTree(this.annotation,
+                        this.children.filter{c =>
+                          println("Child = %s (%d, %d)".format(c.label, c.start, c.end))
+                          c.start() >= s || c.end() <= e}.map(_.slice2(s, e)).toArray)
+                          */
+
+    */
 
 	def tokens(): Array[Token] = {
 		val tokens = new ArrayBuffer[Token]
@@ -143,7 +237,24 @@ case class ConstituentTree(annotation: Annotation, children: Array[ConstituentTr
 			return tally	
 		}
 	}
-	
+
+  def coarsen(l: String): String = {
+    if (l.contains("-")) {
+       l.substring(0, l.indexOf("-"))
+    }
+    else {
+      l
+    }
+  }
+
+  def coarsenLabels(): Int = {
+    setLabel(coarsen(label()))
+    for (child <- children) {
+      child.coarsenLabels()
+    }
+    return 1
+  }
+
 	def setYield(words: Array[String], tags: Array[String]) {
 		if (isLeaf) {
 			val idx = annotation("start").toInt
@@ -287,7 +398,8 @@ def printAnnotations() {
 }
 
 def flatten = depthFirstQueue
-		
+
+  /*
 def nonterminals: Array[String] = {
 	val buf = new ArrayBuffer[String]
 	buf += label
@@ -296,6 +408,7 @@ def nonterminals: Array[String] = {
 	}
 	buf.toArray
 }
+*/
 
 def setLabels(l: String) {
 	this.annotation += "label" -> l
@@ -313,9 +426,7 @@ def extractRules: HashSet[String] = {
 	rules
 }
 
-def rules: Iterator[String] = {
-	(for (t <- this if !t.isPreterminal) yield Rule(t.label(), t.children.map(_.label())).toString)
-}
+
 
 def rulesWithCounts: HashMap[String, Int] = {
 	val r = new HashMap[String, Int]
@@ -355,6 +466,11 @@ def toBareString: String = {
 	}
 }
 
+  def iterator = depthFirstQueue.iterator
+
+}
+
+/*
 // ------------ Iteration ------------- //
 
 	var idx = 0
@@ -376,8 +492,8 @@ def toBareString: String = {
 	}
 	
 	def reset = idx = 0
+     */
 
-}
 
 
 object TreeFactory {
@@ -388,6 +504,41 @@ object TreeFactory {
 		ann += "word"  -> word
 		new ConstituentTree(ann, children)
 	}
+
+  def constructFromSpans(spans: Array[Span], slen: Int): ConstituentTree = {
+//    println("Spans incoming to construct from spans:")
+//    spans.foreach(p => println(" -- " + p + ": h=" + p.height))
+    return TreeFactory.buildTree(label="TOP",
+      children=findChildren(spans.sortBy(sp => (sp.width * 1000) + sp.height).reverse, 0, slen))
+  }
+
+  def findChildren(spans: Array[Span], start: Int, end: Int): Array[ConstituentTree] = {
+    val children = new ArrayBuffer[ConstituentTree]
+    val max = findMaxSpan(spans, start, end)
+    max match {
+      case None => return Array.fill(end-start)(TreeFactory.buildTree(label="TAG", children=Array()))
+      case Some(maxspan) => {
+        if (maxspan.start > start) {
+          val leftChildren = findChildren(spans, start, maxspan.start)
+          if (leftChildren.size > 0) children ++= leftChildren
+        }
+        val cchildren = findChildren(spans.filter(_ != maxspan), maxspan.start, maxspan.end)
+        children += TreeFactory.buildTree(label=maxspan.label, children=cchildren)
+        if (maxspan.end < end) {
+          val rightChildren = findChildren(spans, maxspan.end, end)
+          if (rightChildren.size > 0) children ++= rightChildren
+        }
+        return children.toArray
+      }
+    }
+  }
+
+  def findMaxSpan(spans: Array[Span], start: Int, end: Int): Option[Span] = {
+    for (span <- spans) {
+      if (span.start >= start && span.end <= end) return Some(span)
+    }
+    return None
+  }
 }
 
 
