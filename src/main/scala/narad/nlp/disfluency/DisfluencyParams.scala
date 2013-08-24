@@ -17,5 +17,5 @@ class DisfluencyParams(args: Array[String]) extends ConstituentParserParams(args
   def ALIGNMENT_FILE        = getString("--alignment.file")
   def PREDICT_DISFLUENCY    = getBoolean("--predict.disfluency")
   def PREDICT_SYNTAX        = getBoolean("--predict.syntax")
-  def PRUNED_SYNTAX         = getBoolean("--pruned.syntax")
+  def PRUNE_SYNTAX         = getBoolean("--prune.syntax")
 }

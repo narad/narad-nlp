@@ -7,6 +7,8 @@ import narad.io.onto._
 import narad.nlp.srl.SRLDatum
 import scala.collection.mutable.HashMap
 import narad.nlp.srl.{SRLFeatures, SRLDictionary}
+import narad.bp.util.index.{Index, ArrayIndex, HashIndex}
+
 
 /**
  * Created with IntelliJ IDEA.
@@ -111,8 +113,7 @@ object RandomModelTester extends SRLFeatures {
     val trees = narad.io.tree.TreebankReader.read(treebank, new ArgParser(Array[String]())).toArray
     val t = trees(0)
     val labels: Array[String] = Array("LABEL1", "LABEL2", "LABEL3") //t.iterator.map(_.label()).toArray.flatten
-    t.annotateWithIndices(0)
-    val size = t.slen
+    val size = t.length
     val out = new FileWriter("train.fidx")
     out.write("@slen\t%d\n".format(size))
     for ( width <- 2 to size; start <- 0 to (size - width)) {
@@ -211,11 +212,14 @@ object RandomModelTester extends SRLFeatures {
     out.write("@maxdist\t%d\n".format(1000))
     out.write("@roles\t%s\n".format(dict.roles.mkString(" ") + " A-DUMMY"))
     out.write("@gpreds\t0 %s\n".format(gpreds.mkString(" ")))
-    extractSRLFeatures(datum, dict, out, labelCorrect=true, prune=false, maxdist=1000, srlmode=1)
+    val index = new ArrayIndex[String]
+ //   extractSRLFeatures(datum, dict, index, labelCorrect=true, prune=false, maxdist=1000, params=params)
 
-    extractSyntacticFeatures(datum, out, labelHidden=true, mode=1)
+//    val ex2 = extractSyntacticFeatures(datum, index, params)
+//    val ex3 = extractConnectionFeatures(datum, index, gpreds, maxDist=1000, params)
 
-    extractConnectionFeatures(datum, out, labelHidden=true, gpreds=gpreds, abound=1000)
+//    extractSyntacticFeatures(datum, index, labelHidden=true, skip=false)
+//    extractConnectionFeatures(datum, index, labelHidden=true, gpreds=gpreds, abound=1000)
     out.write("\n")
     out.close()
   }
@@ -241,11 +245,12 @@ object RandomModelTester extends SRLFeatures {
     out.write("@maxdist\t%d\n".format(1000))
     out.write("@roles\t%s\n".format(dict.roles.mkString(" ") + " A-DUMMY"))
     out.write("@gpreds\t0 %s\n".format(gpreds.mkString(" ")))
-    extractSRLFeatures(datum, dict, out, labelCorrect=true, prune=false, maxdist=1000, srlmode=1)
+    val index = new ArrayIndex[String]
+ //   extractSRLFeatures(datum, dict, index, labelCorrect=true, prune=false, maxdist=1000, params=params)
 
-    extractSyntacticFeatures(datum, out, labelHidden=false, mode=1)
+//    extractSyntacticFeatures(datum, index, labelHidden=false, skip=false)
 
-    extractConnectionFeatures(datum, out, labelHidden=false, gpreds=gpreds, abound=1000)
+//    extractConnectionFeatures(datum, index, labelHidden=false, gpreds=gpreds, abound=1000)
     out.write("\n")
     out.close()
   }

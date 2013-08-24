@@ -16,7 +16,7 @@ import narad.bp.util.PotentialExample
  * To change this template use File | Settings | File Templates.
  */
 
-class TaggerModel(params: TaggerParams) extends FactorGraphModel with TaggerFeatures with BeliefPropagation {
+class TaggerModel(params: TaggerParams) extends FactorGraphModel[MultiTaggedSentence] with TaggerFeatures with BeliefPropagation {
 
   val glabelPattern = """.*label\(([0-9]+),.+""".r
   val labelPattern  = """ulabel\(([0-9]+),(.+)\)""".r
@@ -102,7 +102,7 @@ class TaggerModel(params: TaggerParams) extends FactorGraphModel with TaggerFeat
     }
   }
 
-  def decode(instance: ModelInstance) = {
+  def decode(instance: ModelInstance): MultiTaggedSentence = {
     System.err.println("IN T DECODING!")
     val beliefs = instance.marginals
     val labels   = instance.ex.attributes.getOrElse("tags", "").split(" ")
@@ -126,6 +126,7 @@ class TaggerModel(params: TaggerParams) extends FactorGraphModel with TaggerFeat
     out.write(tags.mkString("\n") + "\n")
     out.write("\n")
     out.close()
+    null.asInstanceOf[MultiTaggedSentence]
   }
 
   def options = params

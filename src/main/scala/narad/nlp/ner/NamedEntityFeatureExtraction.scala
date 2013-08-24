@@ -3,7 +3,7 @@ import java.io.{File, FileWriter}
 import narad.io.onto.{OntoDatum, OntoReader}
 
 //import narad.nlp.ling.Lexicon
-import narad.nlp.trees.Token
+import narad.nlp.ling.{TaggedToken => Token}
 import narad.util.ArgParser
 import scala.collection.mutable.ArrayBuffer
 

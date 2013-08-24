@@ -66,5 +66,4 @@ trait TaggerChainInference extends InferenceOrder {
  //   for (m <- mqueue) println(m.name)
     (mqueue ++ mqueue.reverse).iterator
   }
-
 }

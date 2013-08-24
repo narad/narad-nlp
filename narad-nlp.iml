@@ -4,9 +4,9 @@
     <facet type="scala" name="Scala">
       <configuration>
         <option name="compilerLibraryLevel" value="Project" />
-        <option name="compilerLibraryName" value="Maven: org.scala-lang:scala-compiler-bundle:2.9.2" />
+        <option name="compilerLibraryName" value="Maven: org.scala-lang:scala-compiler-bundle:2.10.2" />
         <option name="maximumHeapSize" value="2400" />
-        <option name="vmOptions" value="-Xms64m" />
+        <option name="vmOptions" value="-Xms64m -Xmx4g" />
       </configuration>
     </facet>
   </component>
@@ -23,7 +23,7 @@
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" name="Maven: org.apache.ant:ant:1.8.2" level="project" />
     <orderEntry type="library" name="Maven: org.apache.ant:ant-launcher:1.8.2" level="project" />
-    <orderEntry type="library" name="Maven: org.scala-lang:scala-library:2.9.2" level="project" />
+    <orderEntry type="library" name="Maven: org.scala-lang:scala-library:2.10.2" level="project" />
     <orderEntry type="library" scope="TEST" name="Maven: junit:junit:3.8.1" level="project" />
     <orderEntry type="library" name="Maven: edu.stanford.nlp:stanford-parser:0.9.2" level="project" />
     <orderEntry type="library" name="Maven: stanford-postagger:stanford-postagger:0.9.2" level="project" />

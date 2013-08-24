@@ -64,6 +64,8 @@ trait UnigramTaggerFeatures extends TaggerFeatures {
 
   def getExample(datum: CoNLLDatum, tags: Array[String], index: Index[String], params: TaggerParams): PotentialExample = {
     val slen = datum.slen
+    val ex = new PotentialExample
+/*
     val attributes  = Map[String, String]()
     val potentials = new ArrayBuffer[Potential]
     val featureMap = new HashMap[String, Array[Feature]]
@@ -80,7 +82,8 @@ trait UnigramTaggerFeatures extends TaggerFeatures {
         featureMap(potname) = feats.map(f => new Feature(index.index(tag + "_" + f), 1.0, 0))
       }
     }
-    new PotentialExample(attributes, potentials, featureMap)
+    */
+    ex //new PotentialExample(attributes, potentials, featureMap)
   }
 }
 

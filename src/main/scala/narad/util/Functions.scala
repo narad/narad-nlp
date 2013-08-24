@@ -38,12 +38,4 @@ object Functions {
 
 	def min(a: Double, b: Double) = { if (a > b) b else a }
 	
-	def pad(str: String, len: Int) = {
-		val buffer = new collection.mutable.StringBuilder(str)
-		while (buffer.size < len) {
-			buffer += ' '
-		}
-		buffer.toString()
-	}
-	
 }

@@ -1,12 +1,15 @@
 package narad.nlp.tagger
 
 import narad.bp.util.{Feature, PotentialExample}
-import narad.bp.structure.{FactorGraph, Potential, FactorGraphBuilder, ModelInstance}
+import narad.bp.structure._
 import collection.mutable.{HashMap, ArrayBuffer, HashSet, Map}
 import java.io.FileWriter
 import edu.stanford.nlp.international.morph.MorphoFeatures
 import narad.bp.util.index.Index
 import narad.io.conll.{CoNLLDatum, CoNLLReader}
+import narad.bp.inference.InferenceOrder
+import narad.bp.util.PotentialExample
+import util.matching.Regex
 
 /**
  * Created with IntelliJ IDEA.
@@ -16,22 +19,65 @@ import narad.io.conll.{CoNLLDatum, CoNLLReader}
  * To change this template use File | Settings | File Templates.
  */
 class FactorialTaggerModel(params: FactorialTaggerParams) extends TaggerModel(params) {
+  // t, k, l(t,k)
   val LABEL_FAC_PATTERN = """label\(([0-9]+),([0-9]+),([0-9]+)\)""".r
+  // t, t+1, k, k, l(t,k), l(t+1,k)
+  val CHAIN_FAC_PATTERN = """chain\(([0-9]+),([0-9]+),([0-9]+),([0-9]+),([0-9]+),([0-9]+)\)""".r
+  // t, t, k, k+1, l(t,k), l(t,k+1)
+  val SLICE_FAC_PATTERN = """slice\(([0-9]+),([0-9]+),([0-9]+),([0-9]+),([0-9]+),([0-9]+)\)""".r
+  // i, j
+  val DEPENDENCY_PATTERN = """\(([0-9]+),([0-9]+)\)""".r
 
   override def constructFromExample(ex: PotentialExample, pv: Array[Double]): ModelInstance = {
     val len    = ex.attributes.getOrElse("len", "-1").toInt
     val chains = ex.attributes.getOrElse("chains", "-1").toInt
+//    val dependencies = DEPENDENCY_PATTERN.findAllIn(ex.attributes.getOrElse("dependencies", "")).matchData.foreach { m =>
+//      (m.group(1).toInt, m.group(2).toInt)
+//    }
+
     val pots = ex.exponentiated(pv)
-    val groups = pots.filter(_.name.startsWith("label")).groupBy { pot =>
-      val LABEL_FAC_PATTERN(time, layer, value) = pot.name
-      (time.toInt, layer.toInt)
+    val labelPots = pots.filter(_.name.startsWith(params.LABEL_NAME)).groupBy { pot =>
+      val LABEL_FAC_PATTERN(chain, slice, value) = pot.name
+      (chain.toInt, slice.toInt)
     }
+    val chainPots = pots.filter(_.name.startsWith(params.CHAIN_NAME)).groupBy { pot =>
+      val CHAIN_FAC_PATTERN(chain1, chain2, slice1, slice2, value1, value2) = pot.name
+      (chain1.toInt, chain2.toInt, slice1.toInt, slice2.toInt)
+    }
+    val slicePots = pots.filter(_.name.startsWith(params.SLICE_NAME)).groupBy { pot =>
+      val SLICE_FAC_PATTERN(chain1, chain2, slice1, slice2, value1, value2) = pot.name
+      (chain1.toInt, chain2.toInt, slice1.toInt, slice2.toInt)
+    }
+
+    val idxs = Array.ofDim[Int](len+1, len+1)
+    val arities = Array.ofDim[Int](len+1, len+1)
     val fg = new FactorGraphBuilder(pots)
-    for (t <- 1 to len; k <- 0 until chains) {
-      if (groups.contains((t, k))) {
-        fg.addTable1Variable("labelvar(%d,%d)".format(t, k),
-                             "labelfac(%d,%d)".format(t, k),
-                             groups((t, k)))
+    for (slice <- 1 to len; chain <- 0 until chains) {
+      if (labelPots.contains((chain, slice))) {
+        idxs(chain)(slice) = fg.addTable1Variable("labelvar(%d,%d)".format(chain, slice),
+                             "labelfac(%d,%d)".format(chain, slice),
+                             labelPots((chain, slice)))
+        arities(chain)(slice) = labelPots((chain, slice)).size
+      }
+    }
+    // Add chain dependencies
+    if (pots.exists(_.name.startsWith(params.CHAIN_NAME))) {
+      for (chain <- 0 until chains; slice <- 1 until len) {
+        fg.addTable2FactorByIndex(idxs(chain)(slice), idxs(chain)(slice+1),
+          arities(chain)(slice), arities(chain)(slice+1),
+          "chainFac(%d,%d,%d,%d)".format(chain, chain, slice, slice+1),
+          chainPots((chain, chain, slice, slice+1)))
+      }
+    }
+    // Add slice dependencies
+    if (pots.exists(_.name.startsWith(params.SLICE_NAME))) {
+      for (slice <- 1 until len; chain1 <- 0 until chains; chain2 <- chain1 until chains if chain1 != chain2) {
+        if (slicePots.contains((chain1, chain2, slice, slice))) {
+          fg.addTable2FactorByIndex(idxs(chain1)(slice), idxs(chain2)(slice),
+            arities(chain1)(slice), arities(chain2)(slice),
+            "sliceFac(%d,%d,%d,%d)".format(chain1, chain2, slice, slice),
+            slicePots((chain1, chain2, slice, slice)))
+        }
       }
     }
     return new FactorialTaggerModelInstance(fg.toFactorGraph, ex)
@@ -39,13 +85,16 @@ class FactorialTaggerModel(params: FactorialTaggerParams) extends TaggerModel(pa
 }
 
 class FactorialTaggerModelInstance(graph: FactorGraph, ex: PotentialExample)
-  extends TaggerModelInstance(graph, ex) with TaggerChainInference
+  extends TaggerModelInstance(graph, ex) with FactorialTaggerChainInference
 
 class FactorialTaggerParams(args: Array[String]) extends TaggerParams(args) {
   def NUM_CHAINS = getInt("--num.chains", 1)
+  def LABEL_NAME = getString("--label.name", "label")
+  def CHAIN_NAME = getString("--chain.name", "chain")
+  def CHAIN_ORDER = getInt("--chain.order", 1)
+  def SLICE_NAME = getString("--slice.name", "slice")
+  def SLICE_DEPENDENCIES = getString("--slice.dependencies", "")
 }
-
-
 
 
 

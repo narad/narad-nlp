@@ -13,11 +13,11 @@ class StanfordTaggerWrapper(filename: String) {
 	
 	def replaceTags(trees: Array[ConstituentTree]) = {
 		for (tree <- trees) {
-			val sentence = tree.tokens().map(_.word).mkString(" ")
+			val sentence = tree.words.mkString(" ")
 			val tagged = tagger.tagTokenizedString(sentence)
 			val tags = tagged.split(" ").map(_.split("_")(1))
-			tree.annotateWithIndices(0)
-			tree.replaceTags(tags)
+//			tree.replaceTags(tags)
+      assert(true, "Code should not be run without above line fix")
 		}
 	}	
 }

@@ -17,6 +17,10 @@ import collection.mutable.ArrayBuffer
  * Time: 10:16 PM
  * To change this template use File | Settings | File Templates.
  */
+
+
+/*
+
 class CoarseToFineParser {
 
 }
@@ -78,6 +82,7 @@ object CoarseToFineParser {
     }
   }
 }
+
 
 class CoarseToFineParserOptimizer(model: Model, cparams: ConstituentParserParams) extends Optimizer(model, cparams) with StringToTreeOps with ConstituentBracketFeatures with L2Regularizer {
   val brackModel = new ConstituentBracketParser(cparams)
@@ -260,3 +265,5 @@ class CoarseToFineParserOptimizer(model: Model, cparams: ConstituentParserParams
     }
   }
 }
+
+*/

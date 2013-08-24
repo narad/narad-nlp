@@ -94,3 +94,19 @@ class ConditionalProbabilityTable[T] extends NestedHashCounter[T]{
   }
 }
 
+object ConditionalProbabilityTable {
+
+  def main(args: Array[String]) {
+    val cpt = new ConditionalProbabilityTable[String]
+    cpt.increment("cat", "the")
+    cpt.increment("dog", "the")
+    cpt.increment("rat", "the")
+    cpt.increment("clawed", "cat")
+    cpt.increment("clawed", "rat")
+    System.err.println("CONTEXTS: " + cpt.contexts.mkString(" "))
+    System.err.println("P(cat) = " + cpt.probability("cat"))
+    System.err.println("P(clawed) = " + cpt.probability("clawed"))
+    System.err.println("P(cat|the) = " + cpt.conditionalProbability("cat", "the"))
+    System.err.println("P(clawed|cat) = " + cpt.conditionalProbability("clawed", "cat"))
+  }
+}

@@ -1,7 +1,7 @@
 package narad.io.disfluency
 
 import util.matching.Regex
-import narad.nlp.trees.Token
+import narad.nlp.ling.{TaggedToken => Token}
 import collection.mutable.HashSet
 
 /**

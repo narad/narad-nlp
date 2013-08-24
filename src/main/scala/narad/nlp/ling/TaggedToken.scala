@@ -10,9 +10,11 @@ package narad.nlp.ling
 
 case class Token(word: String) {}
 
-class TaggedToken(word: String, tag: String) extends Token(word) with HasTag {
+case class TaggedToken(word: String, tag: String) extends HasTag {
 
   override def pos = tag
+
+  override def toString = "(%s %s)".format(tag, word)
 }
 
 trait HasTag {

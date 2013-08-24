@@ -1,7 +1,44 @@
 package narad.nlp.ner
-import narad.io.onto.{NamedEntityDatum, NamedEntityReader}
+
+import narad.io.ner.{F1Container, NamedEntityReader, NamedEntityDatum}
+//import narad.io.onto.{NamedEntityDatum, NamedEntityReader}
 import narad.util.ArgParser
 import scala.collection.mutable.ArrayBuffer
+
+object NamedEntityEval {
+
+  def main(args: Array[String]) {
+    val options = new ArgParser(args)
+    val coarsen = options.getBoolean("--coarsen.labels")
+    val gners = new NamedEntityReader(options.getString("--gold.file"), coarsen).iterator.toArray
+    val tners = new NamedEntityReader(options.getString("--test.file"), coarsen).iterator.toArray
+    assert(gners.size == tners.size, "# of gold predictions(%d) does not match # of test predictions(%d).".format(gners.size, tners.size))
+    var ec = new F1Container
+    for (i <- 0 until gners.size) {
+      ec = ec.combine(gners(i).score(tners(i)))
+    }
+    println(ec)
+  }
+}
+
+
+
+
+
+
+
+
+
+
+//gners.zipWithIndex(tners) //.foldLeft(new F1Container)   //{   case(gner, tner) =>
+
+
+
+
+
+
+
+
 
 /*
 object NamedEntityEval {

@@ -1,13 +1,13 @@
 package narad.nlp.disfluency
 
 import narad.bp.structure.{Potential, FactorGraphBuilder, ModelInstance, FactorGraphModel}
-import narad.nlp.parser.constituent.{TreebankStatistics, ConstituentLabelFeatures}
+import narad.nlp.parser.constituent.{TreebankStatistics, ConstituentLabelFeatures, ConstituentParserModel}
 import narad.bp.util.PotentialExample
 import collection.mutable.ArrayBuffer
 import util.matching.Regex
 import narad.io.disfluency.{DisfluencyReader, DisfluencyDatum}
 import java.io.FileWriter
-import narad.nlp.trees.Token
+import narad.nlp.ling.{TaggedToken => Token}
 
 /**
  * Created with IntelliJ IDEA.
@@ -17,7 +17,7 @@ import narad.nlp.trees.Token
  * To change this template use File | Settings | File Templates.
  */
 
-class DisfluencyModel(params: DisfluencyParams) extends FactorGraphModel() with DisfluencyFeatures with ConstituentLabelFeatures {
+class DisfluencyModel(params: DisfluencyParams) extends FactorGraphModel[DisfluencyDatum] with DisfluencyFeatures with ConstituentLabelFeatures {
   val COPY_PATTERN        = """str-copy\(([0-9]+),([0-9]+),([0-9]+),([0-9]+)\)""".r
   val FILL_PAUSE_PATTERN  = """fp\(([0-9]+),([0-9]+)\)""".r
   val DIS_PATTERN         = """.*\(([0-9]+),([0-9]+),([0-9]+),([0-9]+)\)""".r
@@ -32,7 +32,6 @@ class DisfluencyModel(params: DisfluencyParams) extends FactorGraphModel() with 
   val UNARY_LABEL_PATTERN2 = """unaryLabel\(([0-9]+),([0-9]+),(.+)\)""".r
 
 
-
   def constructFromExample(ex: PotentialExample, pv: Array[Double]): ModelInstance = {
     val pots = ex.exponentiated(pv)
     println(params.PREDICT_DISFLUENCY)
@@ -42,6 +41,7 @@ class DisfluencyModel(params: DisfluencyParams) extends FactorGraphModel() with 
       addDisfluencyPrediction(fg, pots, ex)
     }
     if (params.PREDICT_SYNTAX) {
+      System.err.println("Adding Syntax")
       addSyntacticPredictions(fg, pots, ex)
     }
     System.err.println(fg.toFactorGraph.toString)
@@ -117,7 +117,7 @@ class DisfluencyModel(params: DisfluencyParams) extends FactorGraphModel() with 
       val INDICES_PATTERN(start, end) = p.name
       (start.toInt, end.toInt)
     }
-    var useLabels = false
+    var useLabels = true
     val brackIdxs = Array.ofDim[Int](slen+1, slen+1) //new ArrayBuffer[Int]()
     val labelIdxs = Array.fill[ArrayBuffer[Int]](slen+1, slen+1)(new ArrayBuffer[Int])
     for (width <- 2 to slen; start <- 0 to (slen - width)) {
@@ -190,12 +190,13 @@ class DisfluencyModel(params: DisfluencyParams) extends FactorGraphModel() with 
       yield head +: tail
     )
 
-  def decode(instance: ModelInstance) {
+  def decode(instance: ModelInstance): DisfluencyDatum = {
     System.err.println("Decoding...")
     val words = instance.ex.attributes.getOrElse("words", "").split(" ")
     val tags  = instance.ex.attributes.getOrElse("tags", "").split(" ")
     val disStr = words.zip(tags).map{case(w,t) => "%s/%s".format(w,t)}.mkString(" ")
     val dis = new DisfluencyDatum(disStr)
+    println("MARGS:")
     instance.marginals.foreach(println(_))
     for (pot <- instance.marginals.filter(_.value > 0.5)) {
       pot.name match {
@@ -214,104 +215,12 @@ class DisfluencyModel(params: DisfluencyParams) extends FactorGraphModel() with 
     val out = new FileWriter("out.dps", true)
     out.write(dis.toString + "\n")
     out.close()
-    val tree = instance.ex.attributes.getOrElse("tree", "")
+    val parser = new ConstituentParserModel(params)
+    val tree = parser.decode(instance) //instance.ex.attributes.getOrElse("tree", "")
     val out2 = new FileWriter("out.mrg", true)
     out2.write(tree + "\n")
     out2.close()
-  }
-
-  def extractFeatures(disfluencyDir: String, treebankDir: String, outfile: String, tstats: TreebankStatistics, params: DisfluencyParams) {
-    val DISFLUENCY_FEATURES = params.PREDICT_DISFLUENCY
-    val SYNTAX_FEATURES = params.PREDICT_SYNTAX
-    val dreader = new DisfluencyReader(disfluencyDir, treebankDir)
-    val out = new FileWriter(outfile)
-    System.out.println("Extracting features for %d examples".format(dreader.size))
-
-    val MIN_REPAR_LEN  = 1
-    val MIN_INTER_LEN  = 0
-    val MIN_REPAIR_LEN = 1
-
-    val MAX_REPAR_LEN  = 5
-    val MAX_INTER_LEN  = 5
-    val MAX_REPAIR_LEN = 5
-
-    dreader.zipWithIndex.foreach { case(pair, i) =>
-      //     println("ex = " + i)
-      val dis = pair._1
-      val tree = pair._2.removeNones().removeUnaryChains().binarize()
-      if (i % params.PRINT_INTERVAL == 0) System.err.println("  example %d...".format(i))
-      out.write("@slen\t%d\n".format(dis.slen))
-      out.write("@words\t%s\n".format(dis.words.mkString(" ")))
-      out.write("@tags\t%s\n".format(dis.tags.mkString(" ")))
-      out.write("@line\t%s\n".format(dis.lline))
-      out.write("@ints\t%s\n".format(dis.intIndex.mkString(", ")))
-      out.write("@repas\t%s\n".format(dis.repas.mkString(", ")))
-      out.write("@repairs\t%s\n".format(dis.repairs.mkString(", ")))
-      out.write("@aligns\t%s\n".format(dis.alignments.mkString(", ")))
-      out.write("@tree\t%s\n".format(tree.toString()))
-      out.write("@maxrepar\t%d\n".format(MAX_REPAR_LEN))
-      out.write("@maxint\t%d\n".format(MAX_INTER_LEN))
-      out.write("@maxrepair\t%d\n".format(MAX_REPAIR_LEN))
-      out.write("@minrepar\t%d\n".format(MIN_REPAR_LEN))
-      out.write("@minint\t%d\n".format(MIN_INTER_LEN))
-      out.write("@minrepair\t%d\n".format(MIN_REPAIR_LEN))
-      out.write("@ex\t%d\n".format(i))
-      val slen = dis.slen
-
-      println(dis.hasAlignment(4,11))
-      println(dis.hasAlignment(5,12))
-
-      if (SYNTAX_FEATURES) {
-        val LABEL_NAME = params.BRACK_LABEL_NAME
-        //        System.err.println("Extracting syntax features with label set (%d):\n%s".format(labels.size, labels.mkString("\n")))
-        tree.annotateWithIndices()
-        for ( width <- 2 to slen; start <- 0 to (slen - width)) {
-          val end = start + width
-          val feats = constituentSpanFeatures(tree.tokens(), start, end, params)
-          out.write("%s(%d,%d)\t%s%s\n".format("brack", start, end, if (tree.containsSpan(start, end)) "+" else "", feats.mkString(" ")))
-          val labels = if (params.PRUNED_SYNTAX) tstats.constituentLabelsOfSize(width) else tstats.constituentLabels
-          for (label <- labels) {
-            val builder = new StringBuilder()
-            val isCorrect = tree.containsSpan(start, end, label)
-            for (f <- feats) builder.append(" " + label + "_" + f)
-            out.write("%s%s(%d,%d)\t%s%s\n".format(LABEL_NAME, label, start, end, if (isCorrect) "+" else "", builder.toString.trim))
-            builder.clear()
-          }
-        }
-      }
-
-      if (DISFLUENCY_FEATURES) {
-
-        val MIN_DIS_LEN = MIN_REPAR_LEN + MIN_INTER_LEN + MIN_REPAIR_LEN
-        val MAX_DIS_LEN = MAX_REPAR_LEN + MAX_INTER_LEN + MAX_REPAIR_LEN
-        //        for ( width <- 2 to slen; start <- 0 to (slen - width)) {}
-        for (width <- 1 to MAX_INTER_LEN; start <- 0 to(slen-width)) {
-          val end = start+width
-          val feats = interregnumFeats(dis.tokens.toArray, start, end)
-          out.write("%s(%d,%d)\t%s%s\n".format("fp", start, end, if (dis.hasInterregnum(start, end)) "+" else "", feats.mkString(" ")))
-        }
-        for (i <- 0 to slen - (MIN_DIS_LEN); j <- i+1 to i+MAX_REPAR_LEN if j <= slen) {
-          //        println("iter: " + i + " " + j)
-          for (k <- j+MIN_INTER_LEN to j+MAX_INTER_LEN; l <- k+MIN_REPAIR_LEN to k+MAX_REPAIR_LEN if l <= slen) {
-            val disCorrect = (dis.hasReparandum(i,j) && dis.hasRepair(k,l) && (j==k || dis.hasInterregnum(j,k)))
-            val disFeats = DisfluencyFeatures(dis.tokens.toArray, i, j, k, l)
-            out.write("%s(%d,%d,%d,%d)\t%s%s\n".format("dis", i, j, k, l, if (disCorrect) "+" else "", disFeats.mkString(" ")))
-            if (i+1 == j && k+1 == l) {   // Word Copy
-            val simCorrect = dis.hasAlignment(i, k) //(dis.hasReparandum(i,j) && dis.hasRepair(k,l))
-            val feats = similarityWordFeats(dis.tokens.toArray, i, k)
-              out.write("%s(%d,%d,%d,%d)\t%s%s\n".format("str-copy", i, j, k, l, if (simCorrect) "+" else "", feats.mkString(" ")))
-            }
-            else {   // Partial Copy
-            val simCorrect = (dis.hasReparandum(i,j) && dis.hasRepair(k,l))
-              val simFeats = similarityFeats(dis.tokens.toArray, i, j, k, l)
-              out.write("%s(%d,%d,%d,%d)\t%s%s\n".format("str-copy", i, j, k, l, if (simCorrect) "+" else "", simFeats.mkString(" ")))
-            }
-          }
-        }
-      }
-      out.write("\n")
-    }
-    out.close()
+    null.asInstanceOf[DisfluencyDatum]
   }
 
   def options = params

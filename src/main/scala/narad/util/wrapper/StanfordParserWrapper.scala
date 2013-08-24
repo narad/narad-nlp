@@ -63,7 +63,7 @@ class StanfordParserWrapper(model: String, options: Options=null.asInstanceOf[Op
 					case _ =>
 				}
 			}
-			return Some(Tuple(toScalaTree(tree), heads))
+			return Some(((toScalaTree(tree), heads)))
 		}
 		catch{ 
 			case e: Exception => System.err.println("Error parsing <%s>:\n%s\n".format(str, e.getStackTrace.mkString("\n"))); return None
@@ -73,12 +73,12 @@ class StanfordParserWrapper(model: String, options: Options=null.asInstanceOf[Op
 	def toScalaTree(tree: Tree, removeLex: Boolean = true): STree = tree match {
 		case t if t.isPreTerminal => {
 			val tag = removeLexicalization(t.label.toString)
-			val word = t.children.first.label.toString
+			val word = t.children.head.label.toString
 			return STreeFactory.buildTree(tag, word)			
 		}
 		case _=> {
 			val label = if (removeLex) removeLexicalization(tree.label.toString) else tree.label.toString
-			return STreeFactory.buildTree(label, children= tree.children.map(toScalaTree(_)))
+			return STreeFactory.buildTree(label, children= tree.children.toList.map(toScalaTree(_)))
 		}
 	}
 	

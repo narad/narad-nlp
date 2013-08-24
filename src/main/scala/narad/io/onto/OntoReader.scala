@@ -2,6 +2,8 @@ package narad.io.onto
 import narad.nlp.trees.ConstituentTree
 import narad.io.tree.TreebankReader
 import narad.util.ArgParser
+import narad.io.ner.{NamedEntityReader, NamedEntityDatum}
+import narad.bp.optimize.Scorable
 
 class OntoReader(nerFile: String, treeFile: String, options: ArgParser = new ArgParser(Array[String]())) extends Iterable[OntoDatum] {
 	
@@ -14,12 +16,14 @@ class OntoReader(nerFile: String, treeFile: String, options: ArgParser = new Arg
 }
 
 
-case class OntoDatum(ner: NamedEntityDatum, tree: ConstituentTree) {
+case class OntoDatum(ner: NamedEntityDatum, tree: ConstituentTree) extends Scorable {
 
-//  System.out.println("NER = " + ner)
-//  System.out.println("SYNTAX = " + tree)
+  def tokens = tree.tokens
 
-  def tokens = tree.taggedTokens()
+	def slen = tree.length
 
-	def slen = ner.size
+  def score(other: Scorable) = {
+    println("onto scorer")
+    ner.score(other)
+  }
 }

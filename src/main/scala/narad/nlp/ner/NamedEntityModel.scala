@@ -3,12 +3,20 @@ package narad.nlp.ner
 import narad.bp.structure._
 import narad.bp.inference.BeliefPropagation
 import narad.bp.structure.Potential
-import narad.bp.util.PotentialExample
 import scala.util.matching.Regex
+import narad.io.onto.{OntoReader, OntoDatum}
+import java.io.FileWriter
+import narad.io.tree.{OntoNotesTreebankReaderOptions, TreebankReader}
+import collection.mutable.{HashMap, ArrayBuffer}
+import narad.bp.util.index.Index
+import scala.collection.mutable.{Map => Map}
+import narad.bp.util.{GZipWriter, Feature, PotentialExample}
+import narad.io.ner.NamedEntityDatum
+import narad.nlp.trees.ConstituentTree
+import narad.nlp.parser.constituent.{ConstituentLabelFeatures, TreebankStatistics, ConstituentBracketFeatures}
 
-class NamedEntityModelInstance(graph: FactorGraph, ex: PotentialExample) extends ModelInstance(graph, ex)
 
-class NamedEntityModel(params: NamedEntityParams) extends FactorGraphModel with NamedEntityFeatures with BeliefPropagation {
+class NamedEntityModel(params: NamedEntityParams) extends FactorGraphModel[OntoDatum] with NamedEntityFeatures with ConstituentLabelFeatures with BeliefPropagation {
 
   val INDICES_PATTERN = """.*\(([0-9]+),([0-9]+)[^0-9].*""".r
   val glabelPattern = """.*label\(([0-9]+),.+""".r
@@ -16,6 +24,144 @@ class NamedEntityModel(params: NamedEntityParams) extends FactorGraphModel with 
   val NER_SPAN_PATTERN           = """nerbracket\(([0-9]+),([0-9]+)\)""".r
   val NER_LABEL_PATTERN          = """nerlabel\(([0-9]+),([0-9]+),(.+)\)""".r
   val NER_INDICES_PATTERN        = """ner.+\(([0-9]+),([0-9]+).+""".r
+  val LABEL_PATTERN1   = """spanLabel(.*)\(([0-9]+),([0-9]+)\).*""".r
+  val UNARY_LABEL_PATTERN1 = """unaryLabel(.*)\(([0-9]+),([0-9]+)\)""".r
+
+  def extractFeatures(nerFile: String, syntaxFile: String, featureFile: String, index: Index[String],
+                      labels: Array[String], stats: TreebankStatistics, params: NamedEntityParams) = {
+    val maxSeg = params.MAX_SEG
+    println("Extracting label features (in batch sizes of %d)".format(params.BATCH_SIZE))
+    val out = new GZipWriter(featureFile + ".gz") //new FileWriter(trainFeatureFile)
+    val reader = new OntoReader(nerFile, syntaxFile)
+    var startTime = System.currentTimeMillis()
+    reader.zipWithIndex.grouped(params.BATCH_SIZE).foreach { batch =>
+      val batchArray = batch.toArray
+      val pexs = new Array[PotentialExample](batchArray.size)
+      batchArray.par.map { case(onto, i) =>
+        if (i % params.PRINT_INTERVAL == 0) System.err.print("\r  example %d...[index contains %d elements].".format(i, index.size))
+        val ner = onto.ner
+        val tree = onto.tree
+        val btree = tree.removeUnaryChains.binarize()
+        val ex = getNamedEntityFeatures(onto, index, labels, maxSeg, params)
+        if (params.MODEL == "JOINT") {
+          ex += getBracketFeatures(btree, index, params)
+          if (params.PREDICT_LABELS)  ex += getLabelFeatures(btree, stats, index, params)
+          if (params.PREDICT_UNARIES) ex += getUnaryFeatures(tree, stats, index, params)
+          ex += getConnectionFeatures(onto, index, maxSeg, params)
+        }
+        pexs(i % params.BATCH_SIZE) = ex
+      }
+      pexs.foreach { pex =>
+        pex.writeToFile(out)
+        out.write("\n")
+      }
+    }
+    out.close()
+    if (params.TIME) System.err.println("Finished Feature Extraction [%fs.]".format((System.currentTimeMillis() - startTime) / 1000.0))
+  }
+
+
+
+  override def fromPotentialExample(ex: PotentialExample, pv: Array[Double]): OntoDatum = {
+    println("Constructing from Potential Example")
+    val words = ex.attributes.getOrElse("words", "").split(" ")
+    val labels = ex.attributes.getOrElse("labels", "").split(" ")
+    val segs = new ArrayBuffer[(Int, Int, Int)]()
+    ex.getPotentials.foreach { b =>
+      println(b)
+      b.name match {
+        case NER_LABEL_PATTERN(start, end, label) => {
+          println("match")
+          if (b.isCorrect) segs += ((start.toInt, end.toInt, label.toInt))
+        }
+        case _=>
+      }
+    }
+    val ners = segs.filter(_._3 > 1).map{ seg =>
+      new NamedEntity(words.slice(seg._1, seg._2), labels(seg._3-2), 0, seg._1, seg._2)
+    }
+    val datum = new NamedEntityDatum(words, ners.toArray)
+    new OntoDatum(datum, null.asInstanceOf[ConstituentTree])
+  }
+
+  def getConnectionFeatures(datum: OntoDatum, index: Index[String], maxSeg: Int, params: NamedEntityParams): PotentialExample = {
+    val ex = new PotentialExample
+    val slen = datum.slen
+    val ner = datum.ner
+    var tree = datum.tree
+    tree.removeUnaryChains().removeNones().binarize()
+    val tokens = datum.tokens.toArray
+    for ( width <- 2 to Math.min(maxSeg, slen); start <- 0 to (slen - width)) {
+      val end = start + width
+      val feats = connectionFeatures(tree.tokens.toArray, start, end)
+      val isCorrect = tree.containsSpan(start, end) && ner.containsSpan(start, end)
+      val potname = "%s(%d,%d)".format("agree", start, end)
+      ex.potentials += new Potential(1.0, potname, isCorrect)
+      ex.features(potname) = feats.map(f => new Feature(index.index(f), 1.0, 0))
+    }
+    ex
+  }
+
+    def getNamedEntityFeatures(datum: OntoDatum, index: Index[String], labels: Array[String], maxSeg: Int, params: NamedEntityParams): PotentialExample = {
+      val slen = datum.slen
+      val ner = datum.ner
+      var tree = datum.tree
+      tree.removeUnaryChains().removeNones().binarize()
+      val tokens = datum.tokens.toArray
+      val maxSeg = params.MAX_SEG
+    val ex = new PotentialExample
+    ex.attributes("slen") = slen.toString
+    ex.attributes("maxseg") = params.MAX_SEG.toString
+    ex.attributes("labels") = labels.mkString(" ")
+    ex.attributes("words") = tokens.map(_.word).mkString(" ")
+
+      for (j <- slen to 1 by -1) {
+        var labeled = false
+        for (i <- scala.math.max(0, j-maxSeg) to j-1) {
+          val width = j-i
+          val feats = nerFeatures(tokens, i, j)
+          val correctSpan = ner.containsSpan(i,j) || (width == 1 && !ner.coversSpan(i,j)) // "+" else ""
+          val potname1 = "%s(%d,%d)".format("nerbracket", i, j)
+          ex.potentials += new Potential(1.0, potname1, correctSpan)
+          ex.features(potname1) = feats.map(f => new Feature(index.index(f), 1.0, 0))
+//          out.write("nerbracket(%d,%d)\t%s%s\n".format(i, j, correctSpan, feats.mkString(" ")))
+
+          val correctLabel = (!ner.containsSpan(i,j) && width > 1) || (width == 1 && ner.coversSpan(i,j))
+          val potname2 = "%s(%d,%d,%s)".format("nerlabel", i, j, "0")
+          ex.potentials += new Potential(1.0, potname2, correctLabel)
+          ex.features(potname2) = Array(new Feature(index.index("None"), 1.0, 0))
+          //          out.write("nerlabel(%d,%d,0)\t%sNone\n".format(i, j, correctLabel))
+
+ //         if (width == 1) {
+//            val builder = new StringBuilder()
+//            for (f <- feats) builder.append("O_" + f)
+            val label = "O"
+            val potname3 = "%s(%d,%d,%s)".format("nerlabel", i, j, "1")
+            val isCorrect1 = width == 1 && !ner.containsSpan(i,j) && !ner.coversSpan(i,j)
+            ex.potentials += new Potential(1.0, potname3, isCorrect1)
+            if (width > 1) {
+              ex.features(potname3) = Array[Feature]()
+            }
+            else {
+              ex.features(potname3) = feats.map(f => new Feature(index.index(label + "_" + f), 1.0, 0))
+            }
+//          }
+
+          for (label <- labels) {
+//            val builder = new StringBuilder()
+//            for (f <- feats) builder.append(" " + label + "_" + f)
+            val correctLabel = ner.containsSpanLabel(i,j,label)
+            val potname4 = "%s(%d,%d,%s)".format("nerlabel", i, j, labels.indexOf(label)+2)
+            ex.potentials += new Potential(1.0, potname4, correctLabel)
+            ex.features(potname4) = feats.map(f => new Feature(index.index(label + "_" + f), 1.0, 0))
+            //            out.write("nerlabel(%d,%d,%s)\t%s%s\n".format(i, j, labels.indexOf(label)+2, correctLabel, builder.toString.trim))
+          }
+        }
+      }
+    ex //new PotentialExample(attributes, potentials, featureMap)
+  }
+
+
 
   def constructFromExample(ex: PotentialExample, pv: Array[Double]): ModelInstance = { //(pots: Array[Potential], slen: Int, useBigrams: Boolean = false, useSyntax: Boolean = false): TaggerModel = {
   val slen   = ex.attributes.getOrElse("slen", "-1").toInt
@@ -25,51 +171,146 @@ class NamedEntityModel(params: NamedEntityParams) extends FactorGraphModel with 
     val pots = ex.exponentiated(pv)
     val fg = new FactorGraphBuilder(pots)
     addNamedEntityPrediction(fg, pots, slen, maxseg)
-    return new NamedEntityModelInstance(fg.toFactorGraph, ex)
+    if (params.MODEL == "JOINT") {
+      addSyntacticPrediction(fg, pots, slen)
+      addConnectionPrediction(fg, pots, slen, maxseg)
+      if (params.PREDICT_UNARIES) addUnaryPrediction(fg, pots, slen)
+    }
+    if (params.TRAIN_MODE == "MARGINALIZE_SYNTAX") {
+      println("TRAIN: marginalization")
+      new NamedEntityMargModelInstance(fg.toFactorGraph, ex)
+    }
+    else {
+     new NamedEntityModelInstance(fg.toFactorGraph, ex)
+    }
   }
 
 
   def addNamedEntityPrediction(fg: FactorGraphBuilder, pots: Array[Potential], slen: Int, maxWidth: Int, useSemiCRF: Boolean=true) = {
 
-      val groups = pots.groupBy{p =>
+      val groups = pots.filter(_.name.startsWith("ner")).groupBy{p =>
         val INDICES_PATTERN(start, end) = p.name
         (start.toInt, end.toInt)
       }
-      println("GROUPS = " + groups.size)
-
- //     val fg = new FactorGraphBuilder(pots)
       for (width <- 1 to maxWidth; start <- 0 until slen if start+width <= slen) {
         val end = start + width
-        System.err.println("Doing indices %d,%d".format(start, end))
+//        System.err.println("Doing indices %d,%d".format(start, end))
         val gpots = groups((start, end))
         fg.addVariable("nerspanvar(%d,%d)".format(start, end), arity=2)
         fg.addUnaryFactor("nerspanvar(%d,%d)".format(start, end), "nerspanfac(%d,%d)".format(start, end), gpots(0))
         assert(gpots(0).name.contains("nerbracket"), "First pot in set was not for ner bracketing!")
         if (gpots.size > 1) {
-            fg.addVariable("nerlabelvar(%d,%d)".format(start, end), arity=gpots.size-1)
-            fg.addNamed1Factor("nerlabelvar(%d,%d)".format(start, end), "nerlabelfac(%d,%d)".format(start, end), gpots.tail)
-//            fg.addEPUFactorByName("nerspanvar(%d,%d)".format(start, end),
-//                                  "nerlabelvar(%d,%d)".format(start, end),
-//                                  gpots.size-1,
-//                                  "nerEPUfac(%d,%d)".format(start, end))
+            val arity = gpots.size-1
+          fg.addVariable("nerlabelvar(%d,%d)".format(start, end), arity=arity)
+            fg.addTable1Factor("nerlabelvar(%d,%d)".format(start, end), "nerlabelfac(%d,%d)".format(start, end), gpots.tail)
+            fg.addEPUFactorByName("nerspanvar(%d,%d)".format(start, end),
+                                  "nerlabelvar(%d,%d)".format(start, end),
+                                  arity,
+                                  "nerEPUfac(%d,%d)".format(start, end))
         }
       }
-//      System.err.println("Order identified as " + maxWidth)
      if (useSemiCRF) fg.addSegmentationFactor(new Regex("nerspanvar"), slen=slen, maxWidth=maxWidth)
     }
 
-  def decode(instance: ModelInstance) = {
-    val beliefs = instance.marginals
-//    inferSeg(instance.graph)
-/*
-    val out = new FileWriter("test.itagged", true)
-    out.write(tags.mkString("\n") + "\n")
-    out.write("\n")
-    out.close()
-  */
+  def addSyntacticPrediction(fg: FactorGraphBuilder, pots: Array[Potential], slen: Int) = {
+    val groups = pots.filter(_.name.startsWith("brack")).groupBy{p =>
+      val INDICES_PATTERN(start, end) = p.name
+      (start.toInt, end.toInt)
+    }
+    val brackIdxs = Array.tabulate(slen+1, slen+1)( (x,y) => -1) //Array.ofDim[Int](slen+1, slen+1) //new ArrayBuffer[Int]()
+    for (width <- 2 to slen; start <- 0 to (slen - width)) {
+      val end = start + width
+      val gpots = groups((start, end))
+      brackIdxs(start)(end) = fg.addUnaryVariable("brackvar(%d,%d)".format(start, end),
+        "brackfac(%d,%d)".format(start, end),
+        gpots.head)
+    }
+    fg.addCKYFactorByIndices(brackIdxs.toArray.flatten.filter(_ >= 0), slen=slen)
+
+    if (params.PREDICT_LABELS) {
+      val lgroups = pots.filter(_.name.startsWith("spanLabel")).groupBy{p =>
+        val INDICES_PATTERN(start, end) = p.name
+        (start.toInt, end.toInt)
+      }
+      val labelIdxs = Array.fill[ArrayBuffer[Int]](slen+1, slen+1)(new ArrayBuffer[Int])
+      for (width <- 2 to slen; start <- 0 to (slen - width)) {
+        val end = start + width
+        val gpots = lgroups((start, end))
+        if (!gpots.isEmpty) {
+          for (gpot <- gpots) {
+            val LABEL_PATTERN1(label, s, e) = gpot.name
+            labelIdxs(start)(end) += fg.addUnaryVariable("labelvar(%d,%d,%s)".format(start, end, label),
+              "labelfac(%d,%d,%s)".format(start, end, label), gpot)
+          }
+          fg.addIsAtMost1FactorByIndices(brackIdxs(start)(end), labelIdxs(start)(end).toArray, "isAtMost(%d,%d)".format(start, end))
+        }
+      }
+    }
   }
-/*
-  def inferSeg(graph: FactorGraph, slen: Int, maxSeg: Int, numLabels: Int=5, brackName: String="nerlabelvar"): Array[(Int, Int, String)] = { // }//[Int] = {
+
+  def addUnaryPrediction(fg: FactorGraphBuilder, pots: Array[Potential], slen: Int) {
+    val ugroups = pots.filter(_.name.contains("unary")).groupBy{p =>
+      val INDICES_PATTERN(start, end) = p.name
+      (start.toInt, end.toInt)
+    }
+    val brackIdxs = Array.ofDim[Int](slen+1, slen+1) //new ArrayBuffer[Int]()
+    val labelIdxs = Array.fill[ArrayBuffer[Int]](slen+1, slen+1)(new ArrayBuffer[Int])
+    for (start <- 0 until slen) {
+      val end = start + 1
+      val upots = ugroups((start, end))
+      brackIdxs(start)(end) = fg.addUnaryVariable("unaryvar(%d,%d)".format(start, end),
+        "unaryfac(%d,%d)".format(start, end),
+        upots.head)
+      if (upots.size > 1) {
+        for (gpot <- upots.tail) {
+          val UNARY_LABEL_PATTERN1(label, s, e) = gpot.name
+          labelIdxs(start)(end) += fg.addUnaryVariable("unaryLabelvar(%d,%d,%s)".format(start, end, label),
+            "unaryLabelfac(%d,%d,%s)".format(start, end, label),
+            gpot)
+        }
+        fg.addIsAtMost1FactorByIndices(brackIdxs(start)(end), labelIdxs(start)(end).toArray, "isAtMost(%d,%d)".format(start, end))
+      }
+    }
+  }
+
+  def addConnectionPrediction(fg: FactorGraphBuilder, pots: Array[Potential], slen: Int, maxWidth: Int) = {
+    val groups = pots.filter(_.name.startsWith("agree")).groupBy{p =>
+      val INDICES_PATTERN(start, end) = p.name
+      (start.toInt, end.toInt)
+    }
+    for (width <- 2 to Math.min(slen, maxWidth); start <- 0 to (slen - width)) {
+      val end = start + width
+      val gpots = groups((start, end))
+      if (groups.contains((start, end))) {
+        fg.addNandFactor(new Regex("""nerspanvar\(%d,%d\)""".format(start, end)),
+                         new Regex("""brackvar\(%d,%d\)""".format(start, end)),
+                         "agree(%d,%d)".format(start, end), gpots.head)
+      }
+    }
+  }
+
+    def decode(instance: ModelInstance): OntoDatum = {
+    val slen    = instance.ex.attributes.getOrElse("slen", "-1").toInt
+    val labels  = instance.ex.attributes.getOrElse("labels", "").split(" ")
+    val words  = instance.ex.attributes.getOrElse("words", "").split(" ")
+    val numLabels = labels.size + 2
+    val beliefs = instance.marginals
+    val segs = inferSeg(instance.graph, slen, params.MAX_SEG, numLabels=numLabels)
+    val ners = segs.filter(_._3 > 1).map{ seg =>
+      new NamedEntity(words.slice(seg._1, seg._2), labels(seg._3-2), 0, seg._1, seg._2)
+    }
+    val datum = new NamedEntityDatum(words, ners)
+    println("OSEG:" + segs.mkString("\n"))
+    if (params.OUTPUT_NER_FILE != null) {
+      val out = new FileWriter(params.OUTPUT_NER_FILE, true)
+      out.write(datum.toString + "\n")
+      out.close()
+    }
+    val tree = null.asInstanceOf[ConstituentTree]
+    new OntoDatum(datum, tree)  //null.asInstanceOf[OntoDatum]
+  }
+
+  def inferSeg(graph: FactorGraph, slen: Int, maxSeg: Int, numLabels: Int=7, brackName: String="nerlabelvar"): Array[(Int, Int, Int)] = { // }//[Int] = {
   //		val NER_LABEL_VARIABLE_PATTERN = new Regex("""nerlabelvar\(([0-9]+),([0-9]+),(.+)\)""")
   val NER_LABEL_VARIABLE_PATTERN = new Regex("""nerlabelvar\(([0-9]+),([0-9]+)\)""")
 
@@ -78,6 +319,115 @@ class NamedEntityModel(params: NamedEntityParams) extends FactorGraphModel with 
     val labs = new Array[Int](slen+1)
     val scores = Array.ofDim[Double](slen+1, slen+1, numLabels+1)
 
+    println("# labels = " + numLabels)
+    val beliefs = graph.potentialBeliefs
+    for (bb <- beliefs) println(bb)
+    for (node <- graph.variables) {
+      node.name match {
+        case NER_LABEL_VARIABLE_PATTERN(ss, es) => {
+          val b = node.getBeliefs(graph)
+          System.err.println("BELIEFS of b: " + b.mkString(", "))
+          val i = ss.toInt
+          val k = es.toInt
+          val noseg = Math.log(b(0)._2)
+          println("no seg = " + noseg)
+          for (lab <- 1 until numLabels) {
+            val ans = Math.log(b(lab)._2) - noseg
+            scores(i)(k)(lab) = ans
+          }
+        }
+        case _=>
+      }
+    }
+
+      mu(0) = 0
+      for (k <- 1 to slen) {
+        var best = Double.NegativeInfinity
+        var bestLen = -1
+        var bestLab = -1
+        for (w <- 1 to Math.min(maxSeg, k)) {
+          val i = k - w
+          println("i = %d; k = %d; w = %d".format(i, k, w))
+          for (lab <- 1 until numLabels) {
+            val cur = mu(i) + scores(i)(k)(lab)
+            println("  lab " + lab + " = " + cur)
+            if ( cur > best ) {
+              best = cur
+              bestLen = w
+              bestLab = lab
+            }
+          }
+        }
+        println("mu(" + k + ") = " + best)
+        println("lens(" + k + ") = " + bestLen)
+        println("labs(" + k + ") = " + bestLab)
+        mu(k) = best
+        lens(k) = bestLen
+        labs(k) = bestLab
+      }
+
+    val res = new ArrayBuffer[(Int, Int, Int)]
+    var k = slen
+    while (k > 0) {
+      val w = lens(k)
+      //			res += labs(k)
+      //			res += (k)
+      //			res += (k-w)
+      res += ((k-w, k, labs(k)))
+      k -= w
+    }
+    System.err.println("Ents found = " + res.size)
+    return res.toArray
+  }
+
+
+  def options = params
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+ def inferSeg(graph: FactorGraph, slen: Int, maxSeg: Int, numLabels: Int=6, brackName: String="nerlabelvar"): Array[(Int, Int, String)] = { // }//[Int] = {
+  //		val NER_LABEL_VARIABLE_PATTERN = new Regex("""nerlabelvar\(([0-9]+),([0-9]+),(.+)\)""")
+  val NER_LABEL_VARIABLE_PATTERN = new Regex("""nerlabelvar\(([0-9]+),([0-9]+)\)""")
+
+    val mu = new Array[Double](slen+1)
+    val lens = new Array[Int](slen+1)
+    val labs = new Array[Int](slen+1)
+    val scores = Array.ofDim[Double](slen+1, slen+1, numLabels+1)
+
+    println("# labels = " + numLabels)
     for (node <- graph.variables) {
       node.name match {
         case NER_LABEL_VARIABLE_PATTERN(ss, es) => {
@@ -87,11 +437,13 @@ class NamedEntityModel(params: NamedEntityParams) extends FactorGraphModel with 
           val k = es.toInt
           val noseg = Math.log(b(0)._2)
           for (lab <- 1 until numLabels) {
-            scores(i)(k)(lab) = Math.log(b(lab)._2) - noseg
+            val ans = Math.log(b(lab)._2) - noseg
+            scores(i)(k)(lab) = ans
           }
         }
         case _=>
       }
+    }
 
       mu(0) = 0
       for (k <- 1 to slen) {
@@ -113,7 +465,6 @@ class NamedEntityModel(params: NamedEntityParams) extends FactorGraphModel with 
         lens(k) = bestLen
         labs(k) = bestLab
       }
-    }
 
     val res = new ArrayBuffer[(Int, Int, String)]
     var k = slen
@@ -122,29 +473,13 @@ class NamedEntityModel(params: NamedEntityParams) extends FactorGraphModel with 
       //			res += labs(k)
       //			res += (k)
       //			res += (k-w)
-      res += Tuple(k-w, k, labs(k).toString)
+      res += ((k-w, k, labs(k).toString))
       k -= w
     }
     System.err.println("Ents found = " + res.size)
     return res.toArray
   }
-       */
-
-  def options = params
-}
-
-class TaggerModelInstance(graph: FactorGraph, ex: PotentialExample) extends ModelInstance(graph, ex)
-
-
-
-
-
-
-
-
-
-
-
+ */
 /*
     def addNamedEntityPrediction(model: FactorGraphBuilder, pots: Array[Potential], slen: Int, useSemiCRF: Boolean=true) = {
       var maxWidth = 0

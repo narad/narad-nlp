@@ -1,11 +1,10 @@
-package narad.io.onto
+package narad.io.ner
+
 import narad.nlp.ner._
-import narad.util.ArgParser
 import scala.collection.mutable.{ArrayBuffer, HashMap}
 import scala.util.matching.Regex
-import collection.mutable
 
-class NamedEntityReader(filename: String, coarsen: Boolean = true) extends mutable.Iterable[NamedEntityDatum] {
+class NamedEntityReader(filename: String, coarsen: Boolean = true) extends Iterable[NamedEntityDatum] {
 	val ontoSingle = new Regex("""<ENAMEX_TYPE=\"(.*?)\">([^<>]+)</ENAMEX>""")
 	val ontoStart  = new Regex("""<ENAMEX_TYPE=\"(.*?)\">([^<]+)""")
 	val ontoEnd    = new Regex("""([^<>]+)</ENAMEX>""")
@@ -77,7 +76,7 @@ class NamedEntityReader(filename: String, coarsen: Boolean = true) extends mutab
 			count += 1
 		}
 //		System.err.println("# entities = " + entities.size)
-		new NamedEntityDatum(words.size, entities.toArray)
+		new NamedEntityDatum(words, entities.toArray)
 	}
 	
 	def refine(label: String, coarsen: Boolean): String = {
@@ -92,13 +91,7 @@ class NamedEntityReader(filename: String, coarsen: Boolean = true) extends mutab
 	}
 }
 
-case class NamedEntityDatum(slen: Int, entities: Array[NamedEntity]) {
-	def containsSpan(start: Int, end: Int): Boolean = entities.exists(e => e.start == start && e.end == end)
-	def containsSpanLabel(start: Int, end: Int, label: String): Boolean = entities.exists(e => e.start == start && e.end == end && e.label == label)
-	def coversSpan(start: Int, end: Int): Boolean = entities.exists(e => e.start <= start && e.end >= end && e.width > 1)
-	def labels = entities.map(_.label)
-	def size = slen
-}
+
 
 
 

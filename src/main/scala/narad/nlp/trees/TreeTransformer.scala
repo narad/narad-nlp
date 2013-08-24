@@ -1,28 +1,26 @@
 package narad.nlp.trees
-import narad.util.ArgParser
+import narad.io.tree.TreebankReaderOptions
 
-class TreeTransformer(options: ArgParser) {
-	val removeNones					= options.getBoolean("--remove.nones", true)
-	val removeUnaryChains		= options.getBoolean("--remove.unaries", false)
-	val binarize            = options.getBoolean("--binarize", false)
-	val coarseTags 		 		  = options.getBoolean("--coarse.tags", true)
-	val removeTop			      = options.getBoolean("--remove.top", false)
-	val unifyNonterms       = options.getBoolean("--unify.nonterms", false)
-	val fixRoot  					  = options.getBoolean("--fix.root", false)
-	
+class TreeTransformer(options: TreebankReaderOptions) {
+
 	def transformTree(tree: ConstituentTree): ConstituentTree = {
 		var t = tree
-		if (removeNones)       
+		if (options.REMOVE_NONES)
 			t = t.removeNones()
-		if (removeUnaryChains) 
+		if (options.REMOVE_UNARY_CHAINS)
 			t = t.removeUnaryChains()
-		if (binarize)          
+		if (options.BINARIZE)
 			t = t.binarize()
-		if (removeTop)
-			t = t.removeTop
-		if (fixRoot)
-			t.annotation += "label" -> "TOP"
-		t.annotateWithIndices(0)
+		if (options.REMOVE_TOP) {
+      if (t.getChildren.size == 1) t = t.getChildren.head
+    }
+		if (options.FIX_ROOT) {
+      t = new ConstituentTree(NonterminalNode("TOP"), t.getChildren)
+    }
+    if (options.COARSEN_LABELS) {
+      t = t.coarsenLabels
+    }
 		return t
-	}	
+	}
+
 }

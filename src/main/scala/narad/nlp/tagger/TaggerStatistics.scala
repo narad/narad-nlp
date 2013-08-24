@@ -56,10 +56,10 @@ object TaggerStatistics {
       println("P(%s|%s) = %f".format(tag2, tag1, cpt.conditionalProbability(tag2, tag1)))
     }
     println
-    val hm1 = HeatMap.constructFromCPT(cpt, tags.map(_._1).toArray, tags.map(_._1).toArray)
+  //  val hm1 = HeatMap.constructFromCPT(cpt, tags.map(_._1).toArray, tags.map(_._1).toArray)
 
-  //  val etags = Array("NN", "VB", "IN", "DT", "JJ", "CC", "TO", "MD") //cpt.contexts
-  //  val hm1 = HeatMap.constructFromCPT(cpt, etags, etags)
+    val etags = Array("NN", "VB", "IN", "DT", "JJ", "CC", "TO", "MD") //cpt.contexts
+    val hm1 = HeatMap.constructFromCPT(cpt, etags, etags)
     hm1.writeToFile(new File("%s.%s.R".format(label, attribute)), "%s.%s.heatmap".format(label, attribute))
   }
 

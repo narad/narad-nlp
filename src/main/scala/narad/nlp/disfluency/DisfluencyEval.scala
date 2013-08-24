@@ -44,10 +44,11 @@ object DisfluencyEval {
     assert(golds.size == tests.size, "Number of gold instances (%d) not equal to number of test instances (%d)".format(golds.size, tests.size))
     golds.zip(tests).foreach { case(gold, test) =>
       val gdis = gold._1
-      val gtree = gold._2.spans.filter(_.label == "EDITED")
+      val gtree = gold._2.toSpans.filter(_.label == "EDITED")
       val tdis = test._1
-      val ttree = test._2.spans.filter(_.label == "EDITED")
-      for (gs <- gtree) if (ttree.contains(gs)) editCorrect += 1
+      val ttree = test._2.toSpans.filter(_.label == "EDITED")
+  //    for (gs <- gtree) if (ttree.contains(gs)) editCorrect += 1
+      assert(false, "should not run code without fixing above line")
       editGold += gtree.size
       editTest += ttree.size
       println

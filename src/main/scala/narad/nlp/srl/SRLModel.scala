@@ -1,15 +1,14 @@
 package narad.nlp.srl
 import narad.bp.structure._
 import narad.bp.inference._
-import narad.bp.util.PotentialExample
+import narad.bp.util.{GZipWriter, PotentialExample}
+import narad.bp.util.index.{Index, ArrayIndex, HashIndex}
 import collection.mutable.{HashMap, HashSet}
 import scala.util.matching.Regex
-import scala.math._
 import java.io.FileWriter
 import narad.io.srl.SRLReader
-import collection.mutable
 
-class SRLModel(params: SRLParams) extends FactorGraphModel with SRLFeatures with BeliefPropagation {
+class SRLModel(dict: SRLDictionary, params: SRLParams) extends FactorGraphModel[SRLDatum] with SRLFeatures with BeliefPropagation {
   val SENSE_PATTERN  = """sense\(([0-9]+),([0-9]+)\)""".r
   val ARG_PATTERN    = """hasArg\(([0-9]+),([0-9]+)\)""".r
   val LABEL_PATTERN  = """hasLabel\(([0-9]+),([0-9]+),(.+)\)""".r
@@ -17,15 +16,53 @@ class SRLModel(params: SRLParams) extends FactorGraphModel with SRLFeatures with
   val CONNECT_PATTERN = """sslink\(([0-9]+),([0-9]+)\)""".r
 
   def extractFeatures(trainFile: String, trainFeatureFile: String, dict: SRLDictionary,
-                      markCorrect: Boolean, params: SRLParams) = {
+                      maxDist: Int, index: Index[String], params: SRLParams) = {
+    val in = trainFile
+    val out = new GZipWriter(trainFeatureFile + ".gz")  //new FileWriter(trainFeatureFile)
+    val reader = new SRLReader(in)
+    var startTime = System.currentTimeMillis()
 
+    reader.zipWithIndex.grouped(params.BATCH_SIZE).foreach { batch =>
+      val batchArray = batch.toArray
+      val pexs = new Array[PotentialExample](batchArray.size)
+      batchArray.par.map { case(datum, i) =>
+        if (i % params.PRINT_INTERVAL == 0) System.err.print("\r  example %d...[index contains %d elements].".format(i, index.size))
+        val slen = datum.slen
+        val gpreds = datum.predicates
+        val ex = new PotentialExample
+        ex.attributes("slen") = slen.toString
+        ex.attributes("maxdist") = maxDist.toString
+        ex.attributes("roles") = dict.roles.mkString(" ") + " " + params.PRUNED_ROLE_LABEL
+        ex.attributes("model") = params.MODEL
+        ex.attributes("gpreds") = gpreds.mkString(" ")
+        ex.attributes("words") = datum.words.mkString(" ")
+        ex.attributes("tags") = datum.postags.mkString(" ")
+        ex.attributes("lemmas") = datum.lemmas.mkString(" ")
+
+        val ex1 = extractSRLFeatures(datum, dict, index, labelCorrect=true, prune=false, maxdist=maxDist, params=params)
+        var ex2 = new PotentialExample()
+        var ex3 = new PotentialExample()
+        if (params.MODEL != "BASELINE") {
+          ex2 = extractSyntacticFeatures(datum, index, params)
+          ex3 = extractConnectionFeatures(datum, index, gpreds, maxDist, params)
+        }
+        ex.features ++= ex1.features ++ ex2.features ++ ex3.features
+        ex.potentials ++= ex1.potentials ++ ex2.potentials ++ ex3.potentials
+
+        pexs(i % params.BATCH_SIZE) = ex
+      }
+      pexs.foreach { pex =>
+        pex.writeToFile(out)
+        out.write("\n")
+      }
+    }
+    out.close()
   }
 
   def constructFromExample(ex: PotentialExample, pv: Array[Double]): ModelInstance = {
     val slen = ex.attributes.getOrElse("slen", "-1").toInt
     val maxDist = slen+1
     val pots = ex.exponentiated(pv)
-    val mode = ex.attributes.getOrElse("mode", "baseline")
 
     if (params.MODEL == "ORACLE") {
       pots.foreach { p =>
@@ -34,7 +71,6 @@ class SRLModel(params: SRLParams) extends FactorGraphModel with SRLFeatures with
         }
       }
     }
-
     val fg = new FactorGraphBuilder(pots)
     addSRLPrediction(fg, pots, slen)
     if (params.MODEL == "ORACLE") {
@@ -45,99 +81,105 @@ class SRLModel(params: SRLParams) extends FactorGraphModel with SRLFeatures with
       addSyntacticPrediction(fg, pots, slen, observedSyntax = false)
       addConnectionPrediction(fg, pots)
     }
-    new SRLModelInstance(fg.toFactorGraph, ex)
+    if (params.MODEL == "HIDDEN") {
+      new SRLHiddenModelInstance(fg.toFactorGraph, ex)
+    }
+    else {
+      new SRLModelInstance(fg.toFactorGraph, ex)
+    }
   }
 
   def addSRLPrediction(graph: FactorGraphBuilder, pots: Iterable[Potential], slen: Int) {
     val roles = new HashSet[Int]
     val pidxs = new HashSet[Int]
+    val aidxs = Array.ofDim[Int](slen+1, slen+1)
+    for (i <- 0 to slen; j <- 0 to slen) aidxs(i)(j) = -1
     for (pot <- pots) {
       pot.name match {
         case SENSE_PATTERN(spidx, ssidx) => {
           val pidx = spidx.toInt
           val sidx = ssidx.toInt
-          graph.addVariable("senseVar(%d,%d)".format(pidx, sidx), 2)
-          graph.addUnaryFactor("senseVar(%d,%d)".format(pidx, sidx), "senseFac(%d,%d)".format(pidx, sidx), pot)
+          graph.addUnaryVariable("senseVar(%d,%d)".format(pidx, sidx),
+                                  "senseFac(%d,%d)".format(pidx, sidx),
+                                  pot)
           pidxs += pidx
         }
         case ARG_PATTERN(spidx, saidx) => {
           val pidx = spidx.toInt
           val aidx = saidx.toInt
-          //System.err.println("Adding arg %d,%d".format(pidx, aidx))
-          graph.addVariable("argVar(%d,%d)".format(pidx, aidx), 2)
-          graph.addUnaryFactor("argVar(%d,%d)".format(pidx, aidx), "argFac(%d,%d)".format(pidx, aidx), pot)
+          aidxs(pidx)(aidx) = graph.addUnaryVariable("argVar(%d,%d)".format(pidx, aidx),
+                                                     "argFac(%d,%d)".format(pidx, aidx),
+                                                     pot)
         }
         case LABEL_PATTERN(spidx, saidx, slidx) => {
           val pidx = spidx.toInt
           val aidx = saidx.toInt
           val lidx = slidx.toInt
-          graph.addVariable("labelVar(%d,%d,%d)".format(pidx, aidx, lidx), 2)
-          graph.addUnaryFactor("labelVar(%d,%d,%d)".format(pidx, aidx, lidx), "labelFac(%d,%d,%d)".format(pidx, aidx, lidx), pot)
+          graph.addUnaryVariable("labelVar(%d,%d,%d)".format(pidx, aidx, lidx),
+                                 "labelFac(%d,%d,%d)".format(pidx, aidx, lidx),
+                                 pot)
           roles += lidx
         }
         case _=> {}
       }
     }
     for (pidx <- pidxs) {
-      graph.addAtMost1Factor(new Regex("senseVar\\(%d,.+\\)".format(pidx)), "senseAtMost(%d)".format(pidx))
+     graph.addExactly1Factor(new Regex("senseVar\\(%d,.+\\)".format(pidx)), "senseAtMost(%d)".format(pidx))
       for (aidx <- 1 to slen) { // if abs(pidx-aidx) <= maxDist) {
         graph.addIsAtMost1Factor(new Regex("argVar\\(%d,%d\\)".format(pidx, aidx)), new Regex("labelVar\\(%d,%d,.+\\)".format(pidx, aidx)), "labelAtMost(%d,%d)".format(pidx, aidx))
       }
     }
-    val valency = true
-    //val roles = Array[Int](0, 1, 2)
-    val numRoles = roles.size
-    if (valency) {
+    if (params.MODEL_VALENCY) {
       for (pidx <- pidxs) {
-        for (aidx <- 1 to slen) {
-          for (ridx <- 0 to numRoles) {
-            val offpots = Array[Potential](new Potential(1.0, "null", false),
-              new Potential(0.0, "null", false))
-            graph.addVariable("%s(%d,%d,%d)".format("C", pidx, aidx, ridx), arity=2)
-            graph.addTable1Factor("%s(%d,%d,%d)".format("C", pidx, aidx, ridx),
-              "%s(%d,%d,%d)".format("c", pidx, aidx, ridx), offpots)
+        for (aidx <- 1 to slen if aidxs(pidx)(aidx) > -1) {
+          for (ridx <- 0 until roles.size) {
+            val cidx = graph.addVariable("%s(%d,%d,%d)".format("C", pidx, aidx, ridx), 2)
+            graph.addTable2FactorByIndex(aidxs(pidx)(aidx), cidx, 2, 2, "vchainFac(%d,%d,%d)".format(0,1, ridx),
+                  Array(new Potential(0.0, "00", false), new Potential(0.0, "01", false),
+                  new Potential(0.0, "02", false), new Potential(1.0, "10", false)))
 
+            //              Array(new Potential(0.0, "00", false), new Potential(0.0, "01", false), new Potential(0.0, "02", false),
+//                new Potential(0.0, "10", false), new Potential(1.0, "11", false), new Potential(1.0, "12", false)))
           }
-        }
-      }
-    }
-  }
-
+//          if (aidx == 1) {
+//          }
 /*
-      for (pidx <- pidxs; aidx <- 1 to slen) {
-        for (ridx <- roles) {
-          // Add arity "C" variables and their unary table factors
-          val offpots = Array[Potential](new Potential(1.0, "null", false),
-                                          new Potential(0.0, "null", false))
-          graph.addVariable("%s(%d,%d,%d)".format("C", pidx, aidx, ridx), arity=2)
-          graph.addTable1Factor("%s(%d,%d,%d)".format("C", pidx, aidx, ridx),
-                                "%s(%d,%d,%d)".format("c", pidx, aidx, ridx), offpots)
-          if (aidx > 1) {
-            // create pots for table3 transition factor
-            val dim1 = 2
-            val dim2 = 2
-            val dim3 = roles.size
-            val trans = Array.ofDim[Potential](dim1, dim2, dim3)
-            val r = 1  // In a multinomial configuration the ridx is the idx for the value, here 1 is the index for "on"
-            for (i <- 0 until dim1; j <- 0 until dim2; k <- 0 until dim3) {
-              trans(i)(j)(k) = new Potential(0.0, "null", false)
-              if (i == j && k != r) {
-                trans(i)(j)(k) = new Potential(1.0, "null", false)
-              }
-            }
-            trans(0)(1)(r) = new Potential(1.0, "null", false)
-
-            // connect factor to label and adjacent arity chain variables
-            graph.addTable3FactorByMatrix("%s(%d,%d)".format("C", pidx, aidx),
-              "%s(%d,%d)".format("C", pidx, aidx-1),
-              "%s(%d,%d,%d)".format("labelVar", pidx, aidx-1, ridx),
-              "trans-factor(%d,%d)".format(pidx, aidx), trans)
+          else {
+            graph.addTable3Factor("C(%d,%d)".format(pidx, aidx-1), "argVar(%d,%d)".format(pidx, aidx), "C(%d,%d)".format(pidx, aidx),
+                                  3, 2, 3, "vchainFac(%d,%d)".format(aidx-1, aidx),
+                                  Array(new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false),
+                                        new Potential(0.0, "", false)))
           }
+*/
         }
       }
     }
   }
-  */
+
+
+
+
+
+
+
+
+
 
   def addSyntacticPrediction(graph: FactorGraphBuilder, pots: Iterable[Potential], slen: Int, observedSyntax: Boolean= false) {
     for (pot <- pots) {
@@ -146,14 +188,16 @@ class SRLModel(params: SRLParams) extends FactorGraphModel with SRLFeatures with
           val hidx = shidx.toInt
           val kidx = skidx.toInt
           //System.err.println("Adding syntax %d,%d".format(hidx, kidx))
-          graph.addVariable("linkvar(%d,%d)".format(hidx, kidx), 2)
-          graph.addUnaryFactor("linkvar(%d,%d)".format(hidx, kidx), "linkfac(%d,%d)".format(hidx, kidx), pot)
+          graph.addUnaryVariable("linkVar(%d,%d)".format(hidx, kidx),
+                                 "linkFac(%d,%d)".format(hidx, kidx), pot)
+//          graph.addVariable("linkvar(%d,%d)".format(hidx, kidx), 2)
+//          graph.addUnaryFactor("linkvar(%d,%d)".format(hidx, kidx), "linkfac(%d,%d)".format(hidx, kidx), pot)
         }
         case _=> {}
       }
     }
     if (!observedSyntax) {
-      graph.addProjectiveTreeFactor(new Regex("linkvar\\("), "PTREE", slen)
+      graph.addProjectiveTreeFactor(new Regex("linkVar\\("), "PTREE", slen)
     }
   }
 
@@ -163,7 +207,7 @@ class SRLModel(params: SRLParams) extends FactorGraphModel with SRLFeatures with
         case CONNECT_PATTERN(shidx, skidx) => {
           val hidx = shidx.toInt
           val kidx = skidx.toInt
-          graph.addNandFactor(new Regex("argVar\\(%d,%d\\)".format(hidx, kidx)), new Regex("linkvar\\(%d,%d\\)".format(hidx, kidx)), "sslink(%d,%d)".format(hidx, kidx), pot)
+          graph.addNandFactor(new Regex("argVar\\(%d,%d\\)".format(hidx, kidx)), new Regex("linkVar\\(%d,%d\\)".format(hidx, kidx)), "sslink(%d,%d)".format(hidx, kidx), pot)
         }
         case _=> {}
       }
@@ -180,52 +224,272 @@ class SRLModel(params: SRLParams) extends FactorGraphModel with SRLFeatures with
     labels.head
   }
 
-  def decode(instance: ModelInstance) = {
+  def decode(instance: ModelInstance): SRLDatum = {
     System.err.println("In SRL Decoding...")
     val beliefs = instance.marginals
-    /*
-    val preds = instance.ex.attributes.getOrElse("gpreds", "0").split(" ").map(_.toInt).filter(_ > 0)
+//    val preds = instance.ex.attributes.getOrElse("gpreds", "0").split(" ").map(_.toInt).filter(_ > 0)
     val words  = instance.ex.attributes.getOrElse("words", "").split(" ")
     val tags   = instance.ex.attributes.getOrElse("tags", "").split(" ")
     val lemmas = instance.ex.attributes.getOrElse("lemmas", "").split(" ")
-    val datum = SRLEval.constructFromBeliefs(beliefs: Array[Potential],
-                                 words: Array[String],
-                                 tags: Array[String],
-                                 lemmas: Array[String],
-                                 roles: Array[String],
-                                 dict: HashMap[String, Array[String]],
-                                 maxmode = "APPEND",
-                                 maxsense = "01",
-                                 threshold = 0.5)
-    */
-    for (a <- instance.ex.attributes) {
-      println("@%s\t%s".format(a._1, a._2))
+    val roles = instance.ex.attributes.getOrElse("roles", "").split(" ")
+    val maxmode = "APPEND"
+    val maxsense = "01"
+    val threshold = 0.5
+
+    val slen = words.size
+    val heads = new Array[Int](slen)
+    val preds = new Array[String](slen)
+    val args = Array.ofDim[String](slen+1, slen+1)
+
+    for (i <- 0 until slen) preds(i) = "_"
+    for (i <- 0 to slen; j <- 0 to slen) args(i)(j) = "_"
+
+    val groups = beliefs.groupBy { b =>
+      b.name match {
+        case SENSE_PATTERN(pidx, sidx) => ("SENSE", pidx.toInt, -1)
+        case ARG_PATTERN(pidx, aidx) => ("ARG", pidx.toInt, aidx.toInt)
+        case LABEL_PATTERN(pidx, aidx, label) => ("LABEL", pidx.toInt, aidx.toInt)
+        case _=> -1
+      }
     }
-    beliefs.foreach { b =>
-      println(b.name + "\t" + b.value)
+
+    for (i <- 0 to slen if groups.contains("SENSE", i, -1)) {
+      println("lemma = " + lemmas(i-1))
+      val senses = dict.senses(lemmas(i-1))
+      if (senses.isEmpty) {
+        preds(i-1) = lemmas(i-1) + ".1"
+      }
+      else {
+        val SENSE_PATTERN(pidx, sidx) = groups("SENSE", i, -1).maxBy(_.value).name
+        preds(i-1) = senses(sidx.toInt)
+      }
+      for (j <- 0 to slen if groups.contains("ARG", i, j)) {
+        val agroup = groups("ARG", i, j)
+        if (agroup.size > 0 && agroup(0).value > threshold) {
+          println("labels: " + groups("LABEL", i, j).mkString(" "))
+          println("roles: " + roles.mkString(" "))
+          val LABEL_PATTERN(lp, li, ll) = groups("LABEL", i, j).maxBy(_.value).name
+          println("lidx = " + ll.toInt)
+          println("slen = " + slen)
+          args(i)(j) = roles(ll.toInt)
+        }
+      }
     }
-    println
 
-      //    out.write("@gpreds\t0 %s\n".format(gpreds.mkString(" ")))
+    // ID FORM LEMMA PLEMMA POS PPOS FEAT PFEAT HEAD PHEAD DEPREL PDEPREL FILLPRED PRED APREDs
+    val pidxs = preds.zipWithIndex.filter(p => p._1 != "_").map(p => p._2 + 1)
+    println("pidxs = " + pidxs.mkString(" "))
+    for (i <- 0 until slen; j <- 0 until slen) {
+      println("aidx " + i + " " + j + " = " + args(i)(j))
+    }
 
+    val grid = Array.ofDim[String](slen, 14 + pidxs.size)
+    for (i <- 1 to slen) grid(i-1)(0) = i.toString
+    for (i <- 0 until slen) grid(i)(1) = words(i)
+    for (i <- 0 until slen) grid(i)(2) = lemmas(i)
+    for (i <- 0 until slen) grid(i)(3) = lemmas(i)
+    for (i <- 0 until slen) grid(i)(4) = tags(i)
+    for (i <- 0 until slen) grid(i)(5) = tags(i)
+    for (i <- 0 until slen) grid(i)(6) = "_"
+    for (i <- 0 until slen) grid(i)(7) = "_"
+    for (i <- 0 until slen) grid(i)(8) = heads(i).toString
+    for (i <- 0 until slen) grid(i)(9) = heads(i).toString
+    for (i <- 0 until slen) grid(i)(10) = "DEPREL"
+    for (i <- 0 until slen) grid(i)(11) = "PDEPREL"
+    for (i <- 0 until slen) grid(i)(12) = if (preds(i) == "_") "_" else "Y"
+    for (i <- 0 until slen) grid(i)(13) = preds(i)
+    var pcount = 1
+    for (i <- pidxs) {
+      for (j <- 1 to slen) {
+        grid(j-1)(13 + pcount) = args(i)(j)
+      }
+      pcount += 1
+    }
 
+    val datum = new SRLDatum(grid)
 
+    if (params.OUTPUT_FILE != null) {
+      val out = new FileWriter(params.OUTPUT_FILE, true)
+      out.write(datum.toString + "\n\n")
+      out.close()
+    }
+    datum
   }
 
   def options = params
 
 }
 
-class SRLModelInstance(fg: FactorGraph, ex: PotentialExample) extends ModelInstance(fg, ex)
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+def constructFromBeliefs(beliefs: Array[Potential], words: Array[String], tags: Array[String],
+                         lemmas: Array[String], roles: Array[String], dict: SRLDictionary,
+                         maxmode: String = "APPEND", maxsense: String = "01", threshold: Double = 0.5): SRLDatum = {
+  val slen = words.size
+  val heads = new Array[Int](slen)
+  val preds = new Array[String](slen)
+  val args = Array.ofDim[String](slen+1, slen+1)
+
+  for (i <- 0 until slen) preds(i) = "_"
+  for (i <- 0 to slen; j <- 0 to slen) args(i)(j) = "_"
+
+  val groups = beliefs.groupBy { b =>
+    b.name match {
+      case SENSE_PATTERN(pidx, sidx) => ("SENSE", pidx.toInt, -1)
+      case ARG_PATTERN(pidx, aidx) => ("ARG", pidx.toInt, aidx.toInt)
+      case LABEL_PATTERN(pidx, aidx, label) => ("LABEL", pidx.toInt, aidx.toInt)
+      case _=> -1
+    }
+  }
+
+  for (i <- 0 to slen if groups.contains("SENSE", i, -1)) {
+    println("lemma = " + lemmas(i-1))
+    val senses = dict.senses(lemmas(i-1))
+    if (senses.isEmpty) {
+      preds(i-1) = lemmas(i-1) + ".1"
+    }
+    else {
+      val SENSE_PATTERN(pidx, sidx) = groups("SENSE", i, -1).maxBy(_.value).name
+      preds(i-1) = senses(sidx.toInt)
+    }
+    for (j <- 0 to slen if groups.contains("ARG", i, j)) {
+      val agroup = groups("ARG", i, j)
+      if (agroup.size > 0 && agroup(0).value > threshold) {
+        println("labels: " + groups("LABEL", i, j).mkString(" "))
+        println("roles: " + roles.mkString(" "))
+        val LABEL_PATTERN(lp, li, ll) = groups("LABEL", i, j).maxBy(_.value).name
+        println("lidx = " + ll.toInt)
+        println("slen = " + slen)
+        args(i)(j) = roles(ll.toInt)
+      }
+    }
+  }
+
+  // ID FORM LEMMA PLEMMA POS PPOS FEAT PFEAT HEAD PHEAD DEPREL PDEPREL FILLPRED PRED APREDs
+  val pidxs = preds.zipWithIndex.filter(p => p._1 != "_").map(p => p._2 + 1)
+  println("pidxs = " + pidxs.mkString(" "))
+  for (i <- 0 until slen; j <- 0 until slen) {
+    println("aidx " + i + " " + j + " = " + args(i)(j))
+  }
+
+  val grid = Array.ofDim[String](slen, 14 + pidxs.size)
+  for (i <- 1 to slen) grid(i-1)(0) = i.toString
+  for (i <- 0 until slen) grid(i)(1) = words(i)
+  for (i <- 0 until slen) grid(i)(2) = lemmas(i)
+  for (i <- 0 until slen) grid(i)(3) = lemmas(i)
+  for (i <- 0 until slen) grid(i)(4) = tags(i)
+  for (i <- 0 until slen) grid(i)(5) = tags(i)
+  for (i <- 0 until slen) grid(i)(6) = "_"
+  for (i <- 0 until slen) grid(i)(7) = "_"
+  for (i <- 0 until slen) grid(i)(8) = heads(i).toString
+  for (i <- 0 until slen) grid(i)(9) = heads(i).toString
+  for (i <- 0 until slen) grid(i)(10) = "DEPREL"
+  for (i <- 0 until slen) grid(i)(11) = "PDEPREL"
+  for (i <- 0 until slen) grid(i)(12) = if (preds(i) == "_") "_" else "Y"
+  for (i <- 0 until slen) grid(i)(13) = preds(i)
+  var pcount = 1
+  for (i <- pidxs) {
+    for (j <- 1 to slen) {
+      grid(j-1)(13 + pcount) = args(i)(j)
+    }
+    pcount += 1
+  }
+
+  val datum = new SRLDatum(grid)
+/*
+  for (f <- datum.frames) {
+    println(f)
+  }
+  println("9 1? " + datum.hasArg(9, 1))
+  println("10 5? " + datum.hasArg(10, 5))
+  println("10 1? " + datum.hasArg(10, 1))
+  println("10 1 A0? " + datum.hasArgLabel(10, 1, "A0"))
+  println("10 1 A1? " + datum.hasArgLabel(10, 1, "A1"))
+  println("role 10 1 = " + datum.getLabel(10, 1))
+  println("role 10 5 = " + datum.getLabel(10, 5))
+  println("10 14? " + datum.hasArg(10, 14))
+  */
+  return datum
+  //		return new SRLDatum(preds, args, words, words, tags, tags, Array[Int](words.size))
+}
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+    reader.zipWithIndex.foreach { case(datum, i) =>
+      if (datum.predicates.size > 0) {
+        if (i % params.PRINT_INTERVAL == 0) System.err.print("\r  example %d...".format(i))
+        val slen = datum.slen
+        val gpreds = datum.predicates
+        val ex = new PotentialExample
+        ex.attributes("slen") = slen.toString
+        ex.attributes("maxdist") = 1000.toString
+        ex.attributes("roles") = dict.roles.mkString(" ") + " " + params.PRUNED_ROLE_LABEL
+        ex.attributes("model") = params.MODEL
+        ex.attributes("gpreds") = "0 " + gpreds.mkString(" ")
+        ex.attributes("words") = datum.words.mkString(" ")
+        ex.attributes("tags") = datum.postags.mkString(" ")
+        ex.attributes("lemmas") = datum.lemmas.mkString(" ")
+
+        val ex1 = extractSRLFeatures(datum, dict, index, labelCorrect=true, prune=false, maxdist=1000, srlmode=1)
+        var ex2 = new PotentialExample()
+        var ex3 = new PotentialExample()
+        if (params.MODEL != "BASELINE") {
+          ex2 = extractSyntacticFeatures(datum, index, labelHidden=params.MODEL=="ORACLE", skip=params.MODEL=="ORACLE")
+          ex3 = extractConnectionFeatures(datum, index, labelHidden=params.MODEL=="ORACLE", gpreds=gpreds, abound=1000)
+        }
+        ex.features ++= ex1.features ++ ex2.features ++ ex3.features
+        ex.potentials ++= ex1.potentials ++ ex2.potentials ++ ex3.potentials
+        ex.writeToFile(out)
+        out.write("\n")
+      }
+    }
+ */
+
+
+/*
 
 class BaselineSRL(params: SRLParams) extends SRLModel(params) {
 
   override   def extractFeatures(trainFile: String, trainFeatureFile: String, dict: SRLDictionary,
-                                 markCorrect: Boolean, params: SRLParams) = {
+                                 index: Index[String], markCorrect: Boolean, params: SRLParams) = {
     val in = trainFile
     val out = new FileWriter(trainFeatureFile)
     val rout = new FileWriter(trainFeatureFile + ".bpdp")
@@ -259,7 +523,7 @@ class BaselineSRL(params: SRLParams) extends SRLModel(params) {
 
 class OracleSRL(params: SRLParams) extends SRLModel(params) {
   override   def extractFeatures(trainFile: String, trainFeatureFile: String, dict: SRLDictionary,
-                                 markCorrect: Boolean, params: SRLParams) = {
+                                 index: Index[String], markCorrect: Boolean, params: SRLParams) = {
     val in = trainFile
     val out = new FileWriter(trainFeatureFile)
     val rout = new FileWriter(trainFeatureFile + ".bpdp")
@@ -298,7 +562,7 @@ class OracleSRL(params: SRLParams) extends SRLModel(params) {
 
 class HiddenSyntaxSRL(params: SRLParams) extends SRLModel(params)  {
   override   def extractFeatures(trainFile: String, trainFeatureFile: String, dict: SRLDictionary,
-                                 markCorrect: Boolean, params: SRLParams) = {
+                                 index: Index[String], markCorrect: Boolean, params: SRLParams) = {
     val in = trainFile
     val out = new FileWriter(trainFeatureFile)
     val rout = new FileWriter(trainFeatureFile + ".bpdp")
@@ -307,6 +571,10 @@ class HiddenSyntaxSRL(params: SRLParams) extends SRLModel(params)  {
     reader.zipWithIndex.foreach { case(datum, i) =>
       if (datum.predicates.size > 0) {
         if (i % params.PRINT_INTERVAL == 0) System.err.println("  example %d...".format(i))
+        val ex =
+
+
+
         val slen = datum.slen
         val gpreds = datum.predicates
         out.write("@slen\t%d\n".format(slen))
@@ -340,6 +608,7 @@ class HiddenSyntaxSRL(params: SRLParams) extends SRLModel(params)  {
   }
 }
 
+*/
 
 
 
@@ -361,6 +630,63 @@ class HiddenSyntaxSRL(params: SRLParams) extends SRLModel(params)  {
 
 
 
+
+
+
+
+
+/*
+   if (valency) {
+   for (pidx <- pidxs) {
+     for (aidx <- 1 to slen) {
+       for (ridx <- 0 to numRoles) {
+         val offpots = Array[Potential](new Potential(1.0, "null", false),
+           new Potential(0.0, "null", false))
+         graph.addVariable("%s(%d,%d,%d)".format("C", pidx, aidx, ridx), arity=2)
+         graph.addTable1Factor("%s(%d,%d,%d)".format("C", pidx, aidx, ridx),
+           "%s(%d,%d,%d)".format("c", pidx, aidx, ridx), offpots)
+
+       }
+     }
+   }
+ }
+*/
+
+/*
+      for (pidx <- pidxs; aidx <- 1 to slen) {
+        for (ridx <- roles) {
+          // Add arity "C" variables and their unary table factors
+          val offpots = Array[Potential](new Potential(1.0, "null", false),
+                                          new Potential(0.0, "null", false))
+          graph.addVariable("%s(%d,%d,%d)".format("C", pidx, aidx, ridx), arity=2)
+          graph.addTable1Factor("%s(%d,%d,%d)".format("C", pidx, aidx, ridx),
+                                "%s(%d,%d,%d)".format("c", pidx, aidx, ridx), offpots)
+          if (aidx > 1) {
+            // create pots for table3 transition factor
+            val dim1 = 2
+            val dim2 = 2
+            val dim3 = roles.size
+            val trans = Array.ofDim[Potential](dim1, dim2, dim3)
+            val r = 1  // In a multinomial configuration the ridx is the idx for the value, here 1 is the index for "on"
+            for (i <- 0 until dim1; j <- 0 until dim2; k <- 0 until dim3) {
+              trans(i)(j)(k) = new Potential(0.0, "null", false)
+              if (i == j && k != r) {
+                trans(i)(j)(k) = new Potential(1.0, "null", false)
+              }
+            }
+            trans(0)(1)(r) = new Potential(1.0, "null", false)
+
+            // connect factor to label and adjacent arity chain variables
+            graph.addTable3FactorByMatrix("%s(%d,%d)".format("C", pidx, aidx),
+              "%s(%d,%d)".format("C", pidx, aidx-1),
+              "%s(%d,%d,%d)".format("labelVar", pidx, aidx-1, ridx),
+              "trans-factor(%d,%d)".format(pidx, aidx), trans)
+          }
+        }
+      }
+    }
+  }
+  */
 
 
 

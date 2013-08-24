@@ -1,7 +1,7 @@
 package narad.io.disfluency
 
 import collection.mutable.{ArrayBuffer, HashSet}
-import narad.nlp.trees.Token
+import narad.nlp.ling.{TaggedToken => Token}
 
 /**
  * Created with IntelliJ IDEA.

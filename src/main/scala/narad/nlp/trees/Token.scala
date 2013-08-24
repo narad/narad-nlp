@@ -1,3 +1,6 @@
+
+
+/*
 package narad.nlp.trees
 import  narad.nlp.ling.Word
 import scala.collection.mutable.{ArrayBuffer, HashMap, HashSet}
@@ -9,6 +12,7 @@ case class Token(word: String, pos: String) {
 	
 }
 
+*/
 /*
 		val punctuationPattern = """[,\\.;:?!()]""".r
 		val initialPattern = """"[A-Z]\.""".r

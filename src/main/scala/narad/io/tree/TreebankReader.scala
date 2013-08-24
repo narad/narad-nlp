@@ -3,55 +3,55 @@ package narad.io.tree
 import java.io._
 import narad.util._
 import narad.nlp.trees._
-import scala.collection.mutable.{ArrayBuffer, HashMap, HashSet}
-import collection.mutable
+import scala.collection.mutable.ArrayBuffer
 import narad.io.util.DirectoryReader
 
 
-class TreeReader(filename: String, options: ArgParser) extends TreebankReader(filename, options) {}
-
-class TreebankReader(filename: String, options: ArgParser = new ArgParser(Array[String]())) extends Iterable[ConstituentTree] with StringToTreeOps {
+class TreebankReader(filename: String, options: TreebankReaderOptions = new DefaultTreebankReaderOptions) extends Iterable[ConstituentTree] with StringToTreeOps {
 
   def iterator: Iterator[ConstituentTree] = {
     val transformer = new TreeTransformer(options)
     val text = "(DOC %s)".format(io.Source.fromFile(filename).getLines().filter(!_.startsWith("*")).mkString)
-    val defaultLabel = options.getString("--default.label", "TOP")
-    stringToTree(text, defaultLabel=defaultLabel).children.map(transformer.transformTree(_)).iterator
+    val t = stringToTree(text, defaultLabel=options.DEFAULT_LABEL,
+      coarseLabels=options.COARSEN_LABELS)
+    t.getChildren.map(transformer.transformTree(_)).iterator
   }
 }
 
 trait StringToTreeOps {
-  val tokenPattern = """\(([^ \(]+) ([^ \)]+)\).*""".r
-  val constPattern = """\(([^ ]+) .*""".r
-  val emptyPattern = """\( .*""".r
+  private val TOKEN_PATTERN = """\(([^ \(]+) ([^ \)]+)\).*""".r
+  private val CONSTITUENT_PATTERN = """\(([^ ]+) .*""".r
+  private val EMPTY_PATTERN = """\( .*""".r
+  private val DOUBLE_PAREN_PATTERN = """\(\(+.*""".r
 
-  // TODO - implement transformations into tree iterator style util
-  def stringToTree(str: String, options: ArgParser = null.asInstanceOf[ArgParser], defaultLabel: String = "TOP"): ConstituentTree = {
-    val coarseTags = true
+  def stringToTree(str: String, options: ArgParser = null.asInstanceOf[ArgParser], defaultLabel: String = "TOP", coarseLabels: Boolean = false): ConstituentTree = {
     str match {
-      case tokenPattern(tag, word) => TreeFactory.buildTree(label=tag, word=word)
-      case constPattern(label) => {
-        val children = subexpressions(str).map(stringToTree(_, defaultLabel=defaultLabel)).toArray
-        if (coarseTags)
-          return TreeFactory.buildTree(label=coarsenLabel(label), children=children)
-        //					return transformTree(TreeFactory.buildTree(label=coarsenLabel(label), children=children), options)
-        else
-        //					return transformTree(TreeFactory.buildTree(label=label, children=children), options)
-          return TreeFactory.buildTree(label=label, children=children)
-      }
-      case emptyPattern() => {
-        val children = subexpressions(str).map(stringToTree(_, defaultLabel=defaultLabel)).toArray
+      case DOUBLE_PAREN_PATTERN() => {
+        val children = subexpressions(str).map(stringToTree(_, defaultLabel=defaultLabel))
         return TreeFactory.buildTree(label=defaultLabel, children=children)
       }
-      case entry => {
-        if (str != null)
-          System.err.println("Not recognized: %s".format(str))
+      case TOKEN_PATTERN(tag, word) => {
+        TreeFactory.buildTree(label=tag, word=word)
+      }
+      case CONSTITUENT_PATTERN(label) => {
+        val children = subexpressions(str).map(stringToTree(_, defaultLabel=defaultLabel))
+//        if (coarseLabels)
+//          return TreeFactory.buildTree(label=coarsen(label), children=children)
+//        else
+          return TreeFactory.buildTree(label=label, children=children)
+      }
+      case EMPTY_PATTERN() => {
+        val children = subexpressions(str).map(stringToTree(_, defaultLabel=defaultLabel))
+        return TreeFactory.buildTree(label=defaultLabel, children=children)
+      }
+      case _ => {
+        if (str != null) System.err.println("Not recognized: %s".format(str))
         return null.asInstanceOf[ConstituentTree]
       }
     }
   }
 
-  def subexpressions(str: String, ldelim: Char='(', rdelim: Char=')'): Array[String] = {
+  def subexpressions(str: String, ldelim: Char='(', rdelim: Char=')'): List[String] = {
     val subs = new ArrayBuffer[String]
     var count = -1; var start = 0
     str.zipWithIndex.foreach { case(letter, index) =>
@@ -66,12 +66,17 @@ trait StringToTreeOps {
           subs += str.substring(start, index+1)
       }
     }
-    subs.toArray
+    subs.toList
   }
 
+  /*
 
-  def coarsenLabel(label: String): String = {
-    var l = label
+  def coarsen(ll: String): String = {
+    if (ll == "-DFL-") return ll
+    var l = ll
+    while (l.startsWith("^")) {
+      l = l.substring(1)
+    }
     if (l.contains("-"))
       l = l.substring(0, l.indexOf("-"))
     if (l.contains("="))
@@ -80,6 +85,7 @@ trait StringToTreeOps {
       l = l.substring(0, l.indexOf("^"))
     return l
   }
+  */
 }
 
 
@@ -88,18 +94,24 @@ object TreebankReader {
   def main(args: Array[String]) {
     val options = new ArgParser(args)
     val treebankFile = options.getString("--treebank")
-    for (t <- read(treebankFile, options)) {
-      if (t.slen > 2) println(t.removeNones().toString())
+    val sort = options.getBoolean("--sort", false)
+    val min = options.getInt("--min", 0)
+    val max = options.getInt("--max", 100)
+    val reader = if (sort) {
+      read(treebankFile, options).toList.sortBy(_.length)
+    }
+    else {
+      read(treebankFile, options)
+    }
+    for (t <- reader if t.length >= min && t.length <= max) {
+      println(t.toString())
     }
   }
 
   def read(filename: String, options: ArgParser): Iterator[ConstituentTree] = {
-    val reader = new TreebankReader(filename, options)
-    reader.iterator
+    new TreebankReader(filename, TreebankReaderOptions.fromCommandLine(options)).iterator
   }
 }
-
-
 
 class WSJReader(dir: String) {
 

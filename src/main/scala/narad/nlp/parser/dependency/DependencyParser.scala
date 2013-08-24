@@ -2,7 +2,7 @@ package narad.nlp.parser.dependency
 
 import narad.io.conll.CoNLLReader
 import narad.util.ArgParser
-import narad.bp.optimize.{L2Regularizer, Optimizer}
+import narad.bp.optimize.{Optimizer}       //L2Regularizer
 import narad.bp.util.{PotentialExample, PotentialReader}
 import narad.bp.structure._
 import narad.bp.inference.BeliefPropagation
@@ -10,6 +10,7 @@ import collection.mutable.{ArrayBuffer, HashSet}
 import narad.bp.structure.Potential
 import narad.bp.util.PotentialExample
 import scala.util.matching.Regex
+import narad.nlp.trees.DependencyTree
 
 /**
  * Created with IntelliJ IDEA.
@@ -29,19 +30,19 @@ object DependencyParser {
       parser.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, params)
     }
     else if (params.getBoolean("--train")) {
-      val optimizer = new Optimizer(parser, params) with L2Regularizer
-      val data = new PotentialReader(params.TRAIN_FIDX_FILE)
-      optimizer.train(data)
+ //     val optimizer = new Optimizer(parser, params) // with L2Regularizer
+ //     val data = new PotentialReader(params.TRAIN_FIDX_FILE)
+ //     optimizer.train(data)
     }
     else if (params.getBoolean("--test")) {
-      val optimizer = new Optimizer(parser, params)
-      val data = new PotentialReader(params.TEST_FIDX_FILE)
-      optimizer.test(data)
+//      val optimizer = new Optimizer(parser, params)
+//      val data = new PotentialReader(params.TEST_FIDX_FILE)
+//      optimizer.test(data)
     }
   }
 }
 
-class ProjectiveDependencyParser(params: DependencyParserParams) extends FactorGraphModel with DependencyParseFeatures with BeliefPropagation {
+class ProjectiveDependencyParser(params: DependencyParserParams) extends FactorGraphModel[DependencyTree] with DependencyParseFeatures with BeliefPropagation {
   val linkPattern  = """un\(([0-9]+),([0-9]+)\)""".r
 
   def constructFromExample(ex: PotentialExample, pv: Array[Double]): ModelInstance = {
@@ -63,9 +64,10 @@ class ProjectiveDependencyParser(params: DependencyParserParams) extends FactorG
     fg.addProjectiveTreeFactor(new Regex("linkvar\\("), "PTREE", slen)
   }
 
-  def decode(instance: ModelInstance) = {
+  def decode(instance: ModelInstance): DependencyTree = {
     val beliefs = instance.marginals
     println()
+    null.asInstanceOf[DependencyTree]
   }
 
   def options = params

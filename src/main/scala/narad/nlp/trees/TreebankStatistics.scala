@@ -1,3 +1,4 @@
+/*
 package narad.nlp.trees
 
 object TreebankStatistics {
@@ -24,6 +25,6 @@ object TreebankStatistics {
 		println("There are %d spans in total, meaning unaries account for %f percent of all spans.".format(all, (unCount * 1.0 / all)))
 		println("%d & %d & %d & %d & %f".format(unTop, unCount - (unTop+unLeaf), unLeaf, all, (unCount * 1.0 / all)))
 	}
-
-
 }
+
+*/

@@ -5,6 +5,7 @@ import narad.bp.optimize._
 import narad.bp.util._
 import narad.util.ArgParser
 
+/*
 object BioExtract {
 	
 	def main(args: Array[String]) = {
@@ -71,3 +72,6 @@ class BioExtractParams(args: Array[String]) extends ArgParser(args) with ModelOp
 
 
 }
+
+
+*/

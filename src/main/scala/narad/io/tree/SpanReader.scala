@@ -43,8 +43,7 @@ object SpanReader {
 				}
 			}
 			val tree = TreeFactory.constructFromSpans(spans.toArray, slen)
-			tree.annotateWithIndices()
-			tree.setYield(words, tags)
+//			tree.setYield(words, tags)
 			trees += tree
 			
 		}

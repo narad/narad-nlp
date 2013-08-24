@@ -57,11 +57,11 @@ object FrequencyTagger {
         for (i <- 1 to datum.slen) {
           val word = datum.word(i).toLowerCase.trim
           if (cpts(attr).containsEvent(word)) {
-            System.out.println("Found word!" + word)
+//            System.out.println("Found word!" + word)
             outs(attr).write(cpts(attr).mostProbable(word)._1 + "\n")
           }
           else {
-            System.out.println("Didn't find word! !%s!".format(word))
+//            System.out.println("Didn't find word! !%s!".format(word))
             outs(attr).write(mfts(attr) + "\n")
           }
         }

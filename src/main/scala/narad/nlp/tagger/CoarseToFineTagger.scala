@@ -17,6 +17,7 @@ import collection.mutable.{HashMap, ArrayBuffer, HashSet}
  * To change this template use File | Settings | File Templates.
  */
 
+/*
 object CoarseToFineTagger extends TaggerFeatures {
 
   def run(params: TaggerParams): TaggerClassifier = {
@@ -177,4 +178,5 @@ class CoarseToFineOptimizer(model: UnigramTaggerModel, options: OptimizerOptions
 
 }
 
+*/
 */

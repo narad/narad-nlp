@@ -71,19 +71,19 @@ trait TaggerFeatures extends StringPatterns {
     val w2 = words(tidx-1)
     val dist = abs(tidx - fidx)
     val dir = if (tidx > fidx) "RIGHT" else "LEFT"
-    feats += StringFeature("[bias]", 1.0, 0)
-    feats += StringFeature("[form]-%s-%s".format(w1.toLowerCase, w2.toLowerCase), 1.0, 0)
-    feats += StringFeature("[dist]-%d".format(dist), 1.0, 0)
-    feats += StringFeature("[dir]-%s".format(dir), 1.0, 0)
-    feats += StringFeature("[dir-dis]-%s-%d".format(dir, dist), 1.0, 0)
+    feats += new StringFeature("[bias]", 1.0, 0)
+    feats += new StringFeature("[form]-%s-%s".format(w1.toLowerCase, w2.toLowerCase), 1.0, 0)
+    feats += new StringFeature("[dist]-%d".format(dist), 1.0, 0)
+    feats += new StringFeature("[dir]-%s".format(dir), 1.0, 0)
+    feats += new StringFeature("[dir-dis]-%s-%d".format(dir, dist), 1.0, 0)
 
     if (params.FEATURE_MODE > 1) {
-      feats += StringFeature("[isCap]-%s-%s".format(isCapitalized(w1).toString, isCapitalized(w2).toString), 1.0, 0)
+      feats += new StringFeature("[isCap]-%s-%s".format(isCapitalized(w1).toString, isCapitalized(w2).toString), 1.0, 0)
     }
 
     if (params.FEATURE_MODE > 2) {
       for (ss <- 1 to 3 if ss < w1.size && ss < w2.size) {
-        feats += StringFeature("[suffix]-%s-%s".format(w1.substring(w1.size-ss), w2.substring(w2.size-ss)), 1.0, 0)
+        feats += new StringFeature("[suffix]-%s-%s".format(w1.substring(w1.size-ss), w2.substring(w2.size-ss)), 1.0, 0)
       }
     }
     return feats.toArray

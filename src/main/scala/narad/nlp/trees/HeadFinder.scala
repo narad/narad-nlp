@@ -15,50 +15,50 @@ class HeadFinder {
 
 
   def headOf(t: ConstituentTree): String = {
-    if (t.isPreterminal) return t.word()
-    if (t.label() == "NP") {
-      val tokens = t.taggedTokens()
+    if (t.isPreterminal) return t.asInstanceOf[PreterminalNode].word
+    if (t.label == "NP") {
+      val tokens = t.tokens.toArray
       // If the last word is tagged POS, return it
       if (tokens.last.pos == "POS") return tokens.last.word
       // Else search right->left for the first NN/NNP/NNPS/NNS/NX/POS/JJR
       val set1 = Array("NN", "NNP", "NNPS", "NNS", "NX", "POS", "JJR")
       tokens.reverse.foreach(tt => if (set1.contains(tt.pos)) return tt.word)
       // Else search left->right for the first NP
-      t.children.foreach(st => if (st.label() == "NP") return headOf(st)) //st.label())
+      t.getChildren.foreach(st => if (st.label == "NP") return headOf(st)) //st.label())
       // ELse search right->left for the first child which is ADJP or PRN
       val set2 = Array("ADJP", "PRN")
-      t.children.reverse.foreach(st => if (set2.contains(st.label())) return headOf(st))
+      t.getChildren.reverse.foreach(st => if (set2.contains(st.label)) return headOf(st))
       // Else search right-> left for the first child which is CD
-      t.children.reverse.foreach(st => if (st.label() == "CD") return headOf(st))
+      t.getChildren.reverse.foreach(st => if (st.label == "CD") return headOf(st))
       // Else search right->left for the first child which is JJ, JJS, RB, or QP
       val set3 = Array("JJ", "JJS", "RB", "QP")
-      t.children.reverse.foreach(st => if (set3.contains(st.label())) return headOf(st))
+      t.getChildren.reverse.foreach(st => if (set3.contains(st.label)) return headOf(st))
     }
-    val rule = if (rules.exists(_.constituent == t.label())) {
-      rules.filter(_.constituent == t.label()).head
+    val rule = if (rules.exists(_.constituent == t.label)) {
+      rules.filter(_.constituent == t.label).head
     }
     else {
       new HeadFindingRule("DEFAULT", "right", Array())
     }
 
     if (rule.priority == "POS") {
-      var orderedChildren = if (rule.direction == "left") t.children else t.children.reverse
+      var orderedChildren = if (rule.direction == "left") t.getChildren else t.getChildren.reverse
       for (c <- orderedChildren) {
         for (r <- rule.candidates) {
-          if (c.label() == r) return headOf(c)
+          if (c.label == r) return headOf(c)
         }
       }
     }
     for (r <- rule.candidates) {
-      for (c <- t.children) {
-        if (c.label() == r) return headOf(c)
+      for (c <- t.getChildren) {
+        if (c.label == r) return headOf(c)
       }
     }
     if (rule.direction == "left") {
-        return headOf(t.children.head)
+        return headOf(t.getChildren.head)
     }
     else { //if (rule.direction == "right")
-     return headOf(t.children.reverse.head)
+     return headOf(t.getChildren.reverse.head)
     }
   }
 

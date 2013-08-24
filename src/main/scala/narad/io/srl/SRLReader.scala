@@ -23,11 +23,19 @@ object SRLReader {
 
   def main(args: Array[String]) {
     val options = new ArgParser(args)
-    val reader = new SRLReader(options.getString("--srl.file"))
     val print  = options.getBoolean("--print", true)
     val filter = options.getBoolean("--filter", false)
+    val sort   = options.getBoolean("--sort", false)
+    val min    = options.getInt("--min", 0)
+    val max    = options.getInt("--max", 10000)
+    val reader = if (sort) {
+      new SRLReader(options.getString("--srl.file")).toList.sortBy(_.length)
+    }
+    else {
+      new SRLReader(options.getString("--srl.file"))
+    }
     for (datum <- reader) {
-      if (print && (!filter || datum.predicates.size > 0)) {
+      if (print && (!filter || datum.predicates.size > 0) && datum.size > min && datum.size < max) {
         println(datum)
         println
       }

@@ -2,10 +2,10 @@ package narad.nlp.parser.constituent
 
 import java.io.FileWriter
 import narad.io.tree.TreebankReader
-import narad.nlp.trees.{Token, ConstituentTree}
+import narad.nlp.trees.ConstituentTree
 import collection.mutable.{HashMap, HashSet, ArrayBuffer, Map}
 import math.min
-import narad.nlp.trees.Token
+import narad.nlp.ling.{TaggedToken => Token}
 import narad.nlp.trees.ConstituentTree
 import narad.bp.util.{Feature, PotentialExample}
 import narad.bp.structure.Potential
@@ -18,39 +18,31 @@ import narad.bp.util.index._
  * Time: 5:29 AM
  * To change this template use File | Settings | File Templates.
  */
-class ConstituentBracketParser(params: ConstituentParserParams) extends ConstituentParser(params) with ConstituentBracketFeatures
+class ConstituentBracketParser(params: ConstituentParserParams) extends ConstituentParserModel(params) with ConstituentBracketFeatures
 
 trait ConstituentBracketFeatures extends ConstituentParserFeatures {
 
   def extractFeatures(trainFile: String, trainFeatureFile: String, stats: TreebankStatistics, index: Index[String], params: ConstituentParserParams) = {
     println("Extracting bracket features")
+    println("  windo of " + params.FEATURE_WINDOW)
     val out = new FileWriter(trainFeatureFile)
     val reader = new TreebankReader(trainFile)
     var startTime = System.currentTimeMillis()
-    reader.zipWithIndex.foreach { case(tree, i) =>
-      if (i % params.PRINT_INTERVAL == 0) System.err.println("  example %d...".format(i))
-      val slen = tree.slen
-      out.write("@slen\t%d\n".format(slen))
-      out.write("@words\t%s\n".format(tree.words.mkString(" ")))
-      out.write("@tags\t%s\n".format(tree.tags.mkString(" ")))
-      val btree = tree.binarize.removeUnaryChains
-      btree.annotateWithIndices()
-      extractBracketFeatures(btree, out, params)
-      out.write("\n")
+    reader.zipWithIndex.grouped(params.BATCH_SIZE).foreach { batch =>
+      val batchArray = batch.toArray
+      val pexs = new Array[PotentialExample](batchArray.size)
+      batchArray.par.map { case(tree, i) =>
+        if (i % params.PRINT_INTERVAL == 0) System.err.print("\r  example %d...[index contains %d elements].".format(i, index.size))
+        val btree = tree.binarize().removeUnaryChains
+        pexs(i % params.BATCH_SIZE) = getBracketFeatures(btree, index, params)
+      }
+      pexs.foreach { pex =>
+        pex.writeToFile(out)
+        out.write("\n")
+      }
     }
     out.close()
     if (params.TIME) System.err.println("Finished Feature Extraction [%fs.]".format((System.currentTimeMillis() - startTime) / 1000.0))
-  }
-
-  def extractBracketFeatures(tree: ConstituentTree, out: FileWriter, params: ConstituentParserParams) {
-    val BRACK_NAME = params.BRACK_NAME
-    val slen = tree.slen
-    for ( width <- 2 to slen; start <- 0 to (slen - width)) {
-      val end = start + width
-      val feats = constituentSpanFeatures(tree.tokens(), start, end, params)
-      val isCorrect = tree.containsSpan(start, end)
-      out.write("%s(%d,%d)\t%s%s\n".format(BRACK_NAME, start, end, if (isCorrect) "+" else "", feats.mkString(" ")))
-    }
   }
 
   def getBracketFeatures(tree: ConstituentTree, index: Index[String], params: ConstituentParserParams): PotentialExample = {
@@ -58,87 +50,48 @@ trait ConstituentBracketFeatures extends ConstituentParserFeatures {
     val potentials = new ArrayBuffer[Potential]
     val featureMap = new HashMap[String, Array[Feature]]
     val BRACK_NAME = params.BRACK_NAME
-    val slen = tree.slen
-    attributes("slen") = slen.toString
+    val slen = tree.length
+    //println(tree)
+    //println(tree.tokens.mkString(" "))
+    //println(tree.words.mkString(" "))
+      val ex = new PotentialExample
+//    attributes("slen") = slen.toString
     for ( width <- 2 to slen; start <- 0 to (slen - width)) {
       val end = start + width
-      val feats = constituentSpanFeatures(tree.tokens(), start, end, params)
+      val feats = constituentSpanFeatures(tree.tokens.toArray, start, end, params)
       val isCorrect = tree.containsSpan(start, end)
       val potname = "%s(%d,%d)".format(BRACK_NAME, start, end)
-      potentials += new Potential(1.0, potname, isCorrect)
-      featureMap(potname) = feats.map(f => new Feature(index.index(f), 1.0, 0))
+      ex.potentials += new Potential(1.0, potname, isCorrect)
+      ex.features(potname) = feats.map(f => new Feature(index.index(f), 1.0, 0))
 
 //      out.write("%s(%d,%d)\t%s%s\n".format(BRACK_NAME, start, end, if (isCorrect) "+" else "", feats.mkString(" ")))
     }
-    new PotentialExample(attributes, potentials, featureMap)
+    ex //new PotentialExample(attributes, potentials, featureMap)
   }
 
-
-
-  def unigramFeatures(token: Token): Array[String] = {
-    val features = new ArrayBuffer[String]
-    features += "WORD-%s".format(token.word)
-    features += "TAG-%s".format(token.pos)
-    features += "WORD-TAG-%s".format(token.word, token.pos)
-    features += "CAP-%s".format(isCapitalized(token.word).toString)
-    features.toArray
-  }
-
-  def isCapitalized(str: String): Boolean = {
-    val letter = str.substring(0,1)
-    letter == letter.toUpperCase
-  }
-
-  def getUnigramFeatures(token: Token, label: String) : Array[String] = {
-    val features = new ArrayBuffer[String]
-    features += "%s_WORD-%s".format(label, token.word)
-    features += "%s_POS-%s".format(label, token.pos)
-    features += "%s_CAP-%s".format(label, isCapitalized(token.word))
-    features += "%s_WORDPOS-%s_%s".format(label, token.word, token.pos)
-    features.toArray
-  }
-
-  def bigramFeatures(t1: Token, t2: Token): Array[String] = {
-    val features = new ArrayBuffer[String]
-    features += "BIGRAM-W-W-%s-%s".format(t1.word, t2.word)
-    features += "BIGRAM-W-P-%s-%s".format(t1.word, t2.pos)
-    features += "BIGRAM-P-W-%s-%s".format(t1.pos,  t2.word)
-    features += "BIGRAM-P-P-%s-%s".format(t1.pos,  t2.pos)
-    features.toArray
-  }
-
-  def ccmFeatures(tree: ConstituentTree, start: Int, end: Int): Array[String] = {
-    val tokens = tree.tokens()
-    val conjTags = tokens.slice(start, end).map(_.pos).mkString("-")
-    val startTag = if (start == 0) "$START" else tokens(start-1).pos
-    val endTag   = if (end == tokens.size) "$END" else tokens(end).pos
-    val features = new ArrayBuffer[String]
-    features += "OUTSIDE_POS-%s-%s".format(startTag, endTag)
-    features += "INSIDE_POS-%s".format(conjTags)
-    features.toArray
-  }
-
-
-  def constituentSpanFeatures(tokens1: Array[Token], start: Int, end: Int, params: ConstituentParserParams): Array[String] = {
-    // window: Int = 5, mode: Int = 3): Array[String] = {
+  def constituentSpanFeatures(otokens: Array[Token], start: Int, end: Int,
+                              params: ConstituentParserParams, tagset: Array[String] = Array()): Array[String] = {
     val window = params.FEATURE_WINDOW
-    val tokens = pad(tokens1, window, window)
+    val lexicalWindow = 3
+    val mode = 3
     val features = new ArrayBuffer[String]
-
-//    println("tokens size = " + tokens1.size)
-//    println("using window = " + params.FEATURE_WINDOW)
-//    println("padded size = " + tokens.size)
-
-    //		val si = start
-    //		val ei = end
     val si = start + window
     val ei = end + window - 1
     val width = end-start
+    val tokens = pad(otokens, window, window)
+    val words = tokens.map(_.word)
+    val tags = tokens.map(_.pos)
+    val slen = otokens.size
 
     // Simple features
+    features += "[span-bias]"
     features += "[spanwidth]-%d".format(width)
     features += "[span-start]-%d".format(start)
     features += "[span-end]-%d".format(end)
+    features += "[span-start-end-width]-%d-%d-%d".format(start, end, width)
+    if (width == slen) features += "[top-span]"
+    if (start == 0)  features += "[start-span]"
+    if (end == slen) features += "[end-span]"
 
     // Unigram Features
     val startToken = tokens(si)
@@ -174,62 +127,112 @@ trait ConstituentBracketFeatures extends ConstituentParserFeatures {
     features += "[post-word-tag]-%s-%s".format(postWord, postTag)
 
     // Bigram Features
-    features += "[start-word-X-end-word]-%s-%s".format(startWord, endWord)
-    features += "[start-word-X-end-tag]-%s-%s".format(startWord, endTag)
-    features += "[start-tag-X-end-word]-%s-%s".format(startTag, endWord)
-    features += "[start-tag-X-end-tag]-%s-%s".format(startTag, endTag)
+    features += "[start-word-&&-end-word]-%s-%s".format(startWord, endWord)
+    features += "[start-word-&&-end-tag]-%s-%s".format(startWord, endTag)
+    features += "[start-tag-&&-end-word]-%s-%s".format(startTag, endWord)
+    features += "[start-tag-&&-end-tag]-%s-%s".format(startTag, endTag)
 
     // Tag Concatenation Features
-    for (i <- 0 until min(width, window); j <- 1 until min(width, 5)-i) {
-      features += i + "[tags-from-start]--" + tokens.slice(si+i,si+j).map(_.pos).mkString("-")
-      if (j <= 3) {
-        features += i + "[words-from-start]--" + tokens.slice(si+i,si+j).map(_.word).mkString("-")
+    for (i <- 1 until min(width, window)) {
+      features += "[tags-from-start-%d]-%s".format(i+1, tags.slice(si,si+i+1).mkString("-"))
+      if (i <= lexicalWindow) {
+        features += "[words-from-start-%d]-%s".format(i+1, words.slice(si,si+i+1).mkString("-"))
       }
     }
-    for (i <- 0 until min(width, window); j <- 1 until min(width, 5)-i) {
-      features += i + "[tags-before-end]--" + tokens.slice(ei-j,ei-i).map(_.pos).mkString("-")
-      if (j <= 3) {
-        features += i + "[words-before-end]--" + tokens.slice(ei-j,ei-i).map(_.word).mkString("-")
+    for (i <- 1 until window) {
+      features += "[tags-from-end-%d]-%s".format(i+1, tags.slice(ei,ei+i+1).mkString("-"))
+      if (i <= lexicalWindow) {
+        features += "[words-from-end-%d]-%s".format(i+1, words.slice(ei,ei+i+1).mkString("-"))
       }
     }
 
-    // "Footprint" Features
-    features += "[start-footprint-1-1]-%s".format(tokens.slice(si-1, si+1).map(_.pos).mkString("-"))
-    features += "[start-footprint-1-2]-%s".format(tokens.slice(si-1, si+2).map(_.pos).mkString("-"))
-    features += "[start-footprint-2-1]-%s".format(tokens.slice(si-2, si+1).map(_.pos).mkString("-"))
-    features += "[start-footprint-2-2]-%s".format(tokens.slice(si-2, si+2).map(_.pos).mkString("-"))
-    features += "[start-footprint-3-3]-%s".format(tokens.slice(si-3, si+3).map(_.pos).mkString("-"))
-
-    features += "[end-footprint-1-1]-%s".format(tokens.slice(ei-1, ei+1).map(_.pos).mkString("-"))
-    features += "[end-footprint-1-2]-%s".format(tokens.slice(ei-1, ei+2).map(_.pos).mkString("-"))
-    features += "[end-footprint-2-1]-%s".format(tokens.slice(ei-2, ei+1).map(_.pos).mkString("-"))
-    features += "[end-footprint-2-2]-%s".format(tokens.slice(ei-2, ei+2).map(_.pos).mkString("-"))
-    features += "[end-footprint-3-3]-%s".format(tokens.slice(ei-3, ei+3).map(_.pos).mkString("-"))
-
-    features += "bigram-footprint-3-3]-%s-%s".format(tokens.slice(si-1, si+1).map(_.pos).mkString("-"),
-      tokens.slice(ei-1, ei+1).map(_.pos).mkString("-"))
-    features += "bigram-footprint-5-5]-%s-%s".format(tokens.slice(si-2, si+2).map(_.pos).mkString("-"),
-      tokens.slice(ei-2, ei+2).map(_.pos).mkString("-"))
-
-    // Within-Span features
-    if (width < 10) {
-      for (i <- si to ei) {
-        features += "[contains-word]-%s".format(tokens(i).word)
-        features += "[contains-tag]-%s".format(tokens(i).pos)
-      }
-      for (i <- si until ei) {
-        features += "[contains-word-bigram]-%s-%s".format(tokens(i).word, tokens(i+1).word)
-        features += "[contains-tag-bigram]-%s-%s".format(tokens(i).pos, tokens(i+1).pos)
+    for (i <- 1 until window) {
+      features += "[tags-upto-start-%d]-%s".format(i+1, tags.slice(si-i,si+1).mkString("-"))
+      if (i <= lexicalWindow) {
+        features += "[words-upto-start-%d]-%s".format(i+1, words.slice(si-i,si+1).mkString("-"))
       }
     }
+    for (i <- 1 until min(width, window)) {
+      features += "[tags-upto-end-%d]-%s".format(i+1, tags.slice(ei-i,ei+1).mkString("-"))
+      if (i <= lexicalWindow) {
+        features += "[words-upto-end-%d]-%s".format(i+1, words.slice(ei-i,ei+1).mkString("-"))
+      }
+    }
+
 
     // CCM Features
-    features += "[ccm-outside-pos]-%s-%s".format(tokens(si-1).pos, tokens(ei+1).pos)
-    features += "[ccm-inside-pos]-%s".format(tokens.slice(si, ei).map(_.pos).mkString("-"))
+    features += "[outside-1-tags]-%s-&&-%s".format(tags(si-1), tags(ei+1))
+    features += "[outside-2-tags]-%s-&&-%s".format(tags.slice(si-2, si).mkString("-"), tags.slice(ei+1, ei+1+2).mkString("-"))
+    features += "[outside-3-tags]-%s-&&-%s".format(tags.slice(si-3, si).mkString("-"), tags.slice(ei+1, ei+1+3).mkString("-"))
+    features += "[outside-1-words]-%s-&&-%s".format(words(si-1), words(ei+1))
+    features += "[outside-2-words]-%s-&&-%s".format(words.slice(si-2, si).mkString("-"), words.slice(ei, ei+2).mkString("-"))
 
+    if (mode == 3) {
+      if (width >= 2) features += "[inside-1-tags]-%s-&&-%s".format(tags.slice(si, si+1).mkString("-"), tags.slice(ei, ei+1).mkString("-"))
+      if (width >= 4) features += "[inside-2-tags]-%s-&&-%s".format(tags.slice(si, si+2).mkString("-"), tags.slice(ei-1, ei+1).mkString("-"))
+      if (width >= 6) features += "[inside-3-tags]-%s-&&-%s".format(tags.slice(si, si+3).mkString("-"), tags.slice(ei-2, ei+1).mkString("-"))
+    }
+    if (width <= 10) features += "[inside-all-pos]-%s".format(tags.slice(si, ei+1).mkString("-"))
+
+   if (mode == 3) {
+     if (width >= 2) features += "[inside-1-words]-%s-&&-%s".format(words.slice(si, si+1).mkString("-"), words.slice(ei, ei+1).mkString("-"))
+     if (width >= 4) features += "[inside-2-words]-%s-&&-%s".format(words.slice(si, si+2).mkString("-"), words.slice(ei-1, ei+1).mkString("-"))
+     if (width >= 6) features += "[inside-3-words]-%s-&&-%s".format(words.slice(si, si+3).mkString("-"), words.slice(ei-2, ei+1).mkString("-"))
+     if (width <= 5) features += "[inside-all-words]-%s".format(words.slice(si, ei+1).mkString("-"))
+   }
+
+
+    // "Footprint" Tag Features
+    features += "[start-footprint-1-1]-%s".format(tags.slice(si-1, si+2).mkString("-"))
+    features += "[start-footprint-1-2]-%s".format(tags.slice(si-1, si+3).mkString("-"))
+    features += "[start-footprint-2-1]-%s".format(tags.slice(si-2, si+2).mkString("-"))
+    features += "[start-footprint-2-2]-%s".format(tags.slice(si-2, si+3).mkString("-"))
+    features += "[start-footprint-3-3]-%s".format(tags.slice(si-3, si+4).mkString("-"))
+
+    features += "[end-footprint-1-1]-%s".format(tags.slice(ei-1, ei+2).mkString("-"))
+    features += "[end-footprint-1-2]-%s".format(tags.slice(ei-1, ei+3).mkString("-"))
+    features += "[end-footprint-2-1]-%s".format(tags.slice(ei-2, ei+2).mkString("-"))
+    features += "[end-footprint-2-2]-%s".format(tags.slice(ei-2, ei+3).mkString("-"))
+    features += "[end-footprint-3-3]-%s".format(tags.slice(ei-3, ei+4).mkString("-"))
+
+    features += "[bigram-footprint-3-3]-%s-&&-%s".format(tags.slice(si-1, si+2).mkString("-"),
+                                                      tags.slice(ei-1, ei+2).mkString("-"))
+    if (mode == 3) {
+      features += "[bigram-footprint-5-5]-%s-&&-%s".format(tags.slice(si-2, si+3).mkString("-"),
+        tags.slice(ei-2, ei+3).mkString("-"))
+    }
+
+    // Within-Span features
+    val dtags = tags.slice(si, ei+1).distinct
+    for (tag <- tagset) {
+      if (dtags.contains(tag)) {
+        features += "[contains-tag]-%s".format(tag)
+//        features += "[contains-tag-size]-%s-%d".format(tag, width)
+      }
+      else if (!tagset.isEmpty) {
+        features += "[doesnt-contains-tag]-%s".format(tag)
+//        features += "[doesnt-contains-tag-size]-%s-%d".format(tag, width)
+      }
+    }
+
+    // Verb-Pairing Features
+    if (mode == 3) {
+      for (i <- si+1 to ei) {
+        if (tokens(i).pos.startsWith("V")) {
+          //        features += "[has-verb]-%s".format(tokens(i).word)
+          features += "[has-verb-words]-%s-%s-%s".format(tokens(i).word, startWord, endWord)
+        }
+      }
+    }
+ //   println(features.toArray.mkString(" "))
     features.toArray
   }
 
+  def footprint(tokens: Array[String], si: Int, ei: Int, pcutout: Int, pcutin: Int, ecutin: Int, ecutout: Int): String = {
+    "[foot-%d-%d-%d-%d]-%s-&&-%s".format(pcutout, pcutin, ecutin, ecutout,
+     tokens.slice(si-pcutout, si+pcutin+1).mkString("-"),
+     tokens.slice(ei-ecutin, ei+ecutout+1).mkString("-"))
+  }
 
 
   def bigramGenerator(tokens : Array[Token], start: Int, end: Int, cutin: Int, cutout: Int, cpos: Boolean): Array[String] = {
@@ -260,7 +263,7 @@ trait ConstituentBracketFeatures extends ConstituentParserFeatures {
   def getUnaryFeatures(tree: ConstituentTree, start: Int): Array[String] = {
     val features = new ArrayBuffer[String]
     val window = 2
-    val tokens = pad(tree.tokens(), window, window)
+    val tokens = pad(tree.tokens.toArray, window, window)
     val si = start + window
     //	val ei = end + window
     features += "BIAS"
@@ -309,6 +312,49 @@ trait ConstituentBracketFeatures extends ConstituentParserFeatures {
     }
     buffer.toArray
   }
+
+  def unigramFeatures(token: Token): Array[String] = {
+    val features = new ArrayBuffer[String]
+    features += "WORD-%s".format(token.word)
+    features += "TAG-%s".format(token.pos)
+    features += "WORD-TAG-%s".format(token.word, token.pos)
+    features += "CAP-%s".format(isCapitalized(token.word).toString)
+    features.toArray
+  }
+
+  def isCapitalized(str: String): Boolean = {
+    val letter = str.substring(0,1)
+    letter == letter.toUpperCase
+  }
+
+  def getUnigramFeatures(token: Token, label: String) : Array[String] = {
+    val features = new ArrayBuffer[String]
+    features += "%s_WORD-%s".format(label, token.word)
+    features += "%s_POS-%s".format(label, token.pos)
+    features += "%s_CAP-%s".format(label, isCapitalized(token.word))
+    features += "%s_WORDPOS-%s_%s".format(label, token.word, token.pos)
+    features.toArray
+  }
+
+  def bigramFeatures(t1: Token, t2: Token): Array[String] = {
+    val features = new ArrayBuffer[String]
+    features += "BIGRAM-W-W-%s-%s".format(t1.word, t2.word)
+    features += "BIGRAM-W-P-%s-%s".format(t1.word, t2.pos)
+    features += "BIGRAM-P-W-%s-%s".format(t1.pos,  t2.word)
+    features += "BIGRAM-P-P-%s-%s".format(t1.pos,  t2.pos)
+    features.toArray
+  }
+
+  def ccmFeatures(tree: ConstituentTree, start: Int, end: Int): Array[String] = {
+    val tokens = tree.tokens.toArray
+    val conjTags = tokens.slice(start, end).map(_.pos).mkString("-")
+    val startTag = if (start == 0) "$START" else tokens(start-1).pos
+    val endTag   = if (end == tokens.size) "$END" else tokens(end).pos
+    val features = new ArrayBuffer[String]
+    features += "OUTSIDE_POS-%s-%s".format(startTag, endTag)
+    features += "INSIDE_POS-%s".format(conjTags)
+    features.toArray
+  }
 }
 
 
@@ -322,6 +368,129 @@ trait ConstituentBracketFeatures extends ConstituentParserFeatures {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+      reader.zipWithIndex.foreach { case(tree, i) =>
+      if (i % params.PRINT_INTERVAL == 0) System.err.println("  example %d...".format(i))
+      val slen = tree.length
+      out.write("@slen\t%d\n".format(slen))
+      out.write("@words\t%s\n".format(tree.words.mkString(" ")))
+      out.write("@tags\t%s\n".format(tree.tags.mkString(" ")))
+      println("tree = " + tree)
+      val btree = tree.binarize().removeUnaryChains
+      //extractBracketFeatures(btree, out, params)
+      val bf = getBracketFeatures(btree, index, params)
+      out.write(bf.toString + "\n")
+    }
+*/
+
+
+/*
+def extractBracketFeatures(tree: ConstituentTree, out: FileWriter, params: ConstituentParserParams) {
+  val BRACK_NAME = params.BRACK_NAME
+  val slen = tree.slen
+  for ( width <- 2 to slen; start <- 0 to (slen - width)) {
+    val end = start + width
+    val feats = constituentSpanFeatures(tree.tokens(), start, end, params)
+    val isCorrect = tree.containsSpan(start, end)
+    out.write("%s(%d,%d)\t%s%s\n".format(BRACK_NAME, start, end, if (isCorrect) "+" else "", feats.mkString(" ")))
+  }
+}
+*/
+
+
+
+
+/*
+for (i <- 0 until min(width, window); j <- 1 until min(width, maxCut)-i) {
+  features += "[tags-from-start-%d]-%s".format(j-i, tags.slice(si+i,si+j+1).mkString("-"))
+  if (j <= 3) {
+    features += "[words-from-start-%d]-%s".format(j-i, words.slice(si+i,si+j+1).mkString("-"))
+  }
+}
+for (i <- 0 until min(width, window); j <- 1 until min(width, maxCut)-i) {
+  features += "[tags-before-end-%d]-%s".format(i, tags.slice(ei-j,ei-i+1).mkString("-"))
+  if (j <= 3) {
+    features += "[words-before-end-%d]-%s".format(i, words.slice(ei-j,ei-i+1).mkString("-"))
+  }
+}
+for (i <- 1 until window) {
+  features += "[tags-before-start-%d]-%s".format(si-i, tags.slice(si-i,si+1).mkString("-"))
+  if (i <= 3) {
+    features += "[words-before-start-%d]-%s".format(si-i, words.slice(si-i,si+1).mkString("-"))
+  }
+}
+*/
+
+/*
+for (i <- 0 until min(width, window); j <- 1 until min(width, maxCut)-i) {
+  features += "[tags-from-start-%d]-%s".format(i, tokens.slice(si+i,si+j).map(_.pos).mkString("-"))
+  if (j <= 3) {
+    features += "[words-from-start-%d]-%s".format(i, tokens.slice(si+i,si+j).map(_.word).mkString("-"))
+  }
+}
+for (i <- 0 until min(width, window); j <- 1 until min(width, maxCut)-i) {
+  features += "[tags-before-end-%d]-%s".format(i, tokens.slice(ei-j,ei-i).map(_.pos).mkString("-"))
+  if (j <= 3) {
+    features += "[words-before-end-%d]-%s".format(i, tokens.slice(ei-j,ei-i).map(_.pos).mkString("-"))
+  }
+}
+if (si > 1) {
+  for (i <- si-2 until 0) {
+    features += "[tags-before-start-%d]-%s".format(si-i, tokens.slice(i,si).map(_.pos).mkString("-"))
+    if (si-i <= 3) {
+      features += "[words-before-start-%d]-%s".format(si-i, tokens.slice(i,si).map(_.pos).mkString("-"))
+    }
+  }
+}
+
+// "Footprint" Features
+features += "[start-footprint-1-1]-%s".format(tokens.slice(si-1, si+1).map(_.pos).mkString("-"))
+features += "[start-footprint-1-2]-%s".format(tokens.slice(si-1, si+2).map(_.pos).mkString("-"))
+features += "[start-footprint-2-1]-%s".format(tokens.slice(si-2, si+1).map(_.pos).mkString("-"))
+features += "[start-footprint-2-2]-%s".format(tokens.slice(si-2, si+2).map(_.pos).mkString("-"))
+features += "[start-footprint-3-3]-%s".format(tokens.slice(si-3, si+3).map(_.pos).mkString("-"))
+
+features += "[end-footprint-1-1]-%s".format(tokens.slice(ei-1, ei+1).map(_.pos).mkString("-"))
+features += "[end-footprint-1-2]-%s".format(tokens.slice(ei-1, ei+2).map(_.pos).mkString("-"))
+features += "[end-footprint-2-1]-%s".format(tokens.slice(ei-2, ei+1).map(_.pos).mkString("-"))
+features += "[end-footprint-2-2]-%s".format(tokens.slice(ei-2, ei+2).map(_.pos).mkString("-"))
+features += "[end-footprint-3-3]-%s".format(tokens.slice(ei-3, ei+3).map(_.pos).mkString("-"))
+
+features += "bigram-footprint-3-3]-%s-%s".format(tokens.slice(si-1, si+1).map(_.pos).mkString("-"),
+  tokens.slice(ei-1, ei+1).map(_.pos).mkString("-"))
+features += "bigram-footprint-5-5]-%s-%s".format(tokens.slice(si-2, si+2).map(_.pos).mkString("-"),
+  tokens.slice(ei-2, ei+2).map(_.pos).mkString("-"))
+*/
+
+
+
+/*
+    if (width < 10) {
+      for (i <- si to ei) {
+        features += "[contains-word]-%s".format(tokens(i).word)
+        features += "[contains-tag]-%s".format(tokens(i).pos)
+      }
+      for (i <- si until ei) {
+        features += "[contains-word-bigram]-%s-%s".format(tokens(i).word, tokens(i+1).word)
+        features += "[contains-tag-bigram]-%s-%s".format(tokens(i).pos, tokens(i+1).pos)
+      }
+    }
+*/
 
 /*
 	def unigramFeatures(token: Token): Array[String] = {

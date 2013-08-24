@@ -1,11 +1,15 @@
 package narad.nlp.srl
 import narad.bp.structure._
-import narad.bp.util.index.ArrayIndex
-import narad.bp.optimize._
-import narad.bp.util._
+import narad.bp.optimize.Optimizer
+import narad.bp.util.{PotentialExample, PotentialReader}
+import narad.bp.util.index.{Index, ArrayIndex, HashIndex}
+import narad.bp.structure.{FactorGraph, FactorGraphBuilder, Potential}
 import java.io.{FileWriter, File}
 import scala.collection.mutable.HashMap
 import narad.io.srl.SRLReader
+import narad.nlp.parser.constituent.{TreebankStatistics, ConstituentLabelParser, ConstituentBracketParser}
+import narad.io.tree.{TreebankReader, TreebankReaderOptions}
+import narad.util.ArgParser
 
 object FeatureExtractionMode extends Enumeration {
   val TRAIN = Value("TRAIN")
@@ -22,37 +26,61 @@ object SRL extends SRLFeatures {
 
   def run(params: SRLParams) {
     //println("MODEL = " + params.MODEL)
-    val srl = params.MODEL match {
+    val dict = SRLDictionary.construct(params.TRAIN_FILE)
+    val model = new SRLModel(dict, params)
+/*
+      params.MODEL match {
       case "ORACLE" => new OracleSRL(params)
       case "HIDDEN" => new HiddenSyntaxSRL(params)
       case _ => new BaselineSRL(params)
     }
-    if (params.getBoolean("--extract.features")) {
+*/
+    if (params.EXTRACT_FEATURES) {
+      System.err.println("Extracting features...")
+      val reader = new SRLReader(params.TRAIN_FILE)
+      var maxDist = 0
+      reader.foreach {
+        d => val slen = d.slen
+        for (i <- 0 to slen; j <- 0 to slen) {
+          if (d.hasArg(i, j)) {
+            val dist = math.abs(i-j)
+            if (dist > maxDist) maxDist = dist
+          }
+        }
+      }
+      maxDist = params.MAX_DIST
       val dict = SRLDictionary.construct(params.TRAIN_FILE)
-      srl.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, dict, markCorrect=true, params)
-      srl.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, dict, markCorrect=false, params)
+      val index = if (params.HASH_DICT) new HashIndex(params.PV_SIZE) else new ArrayIndex[String]()
+      model.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, dict, maxDist, index, params)
+      model.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, dict, maxDist, index, params)
+      if (!params.HASH_DICT) index.writeToFile("feats.index")
     }
-    if (params.getBoolean("--integerize")) {
-
+    if (params.getBoolean("--train")) {
+      val optimizer = new Optimizer(model, params)
+      val data = new PotentialReader(params.TRAIN_FIDX_FILE)
+      optimizer.train(data)
     }
-    if (params.getBoolean("--train") || params.getBoolean("--test")) {
-      val optimizer = if (params.MODEL == "HIDDEN") {
-        new HiddenStructureOptimizer(srl, params) with L2Regularizer
-      }
-      else {
-        new Optimizer(srl, params) with L2Regularizer
-      }
-      if (params.getBoolean("--train")) {
-        val data = new PotentialReader(params.TRAIN_FIDX_FILE)
-        optimizer.train(data)
-      }
-      if (params.getBoolean("--test")) {
-        val data = new PotentialReader(params.TEST_FIDX_FILE)
-        optimizer.test(data)
-      }
+    if (params.getBoolean("--test")) {
+      val optimizer = new Optimizer(model, params)
+      val data = new PotentialReader(params.TEST_FIDX_FILE)
+      optimizer.test(data)
     }
   }
 }
+
+
+//    if (params.getBoolean("--train") || params.getBoolean("--test")) {
+//      val optimizer = new Optimizer(model, params)
+//    }
+      // with L2Regularizer
+/*
+      if (params.MODEL == "HIDDEN") {
+        new HiddenStructureOptimizer(srl, params) // with L2Regularizer
+      }
+      else {
+        new Optimizer(srl, params) // with L2Regularizer
+      }
+*/
 
 
 

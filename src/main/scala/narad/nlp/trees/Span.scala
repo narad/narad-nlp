@@ -30,5 +30,7 @@ package narad.nlp.trees
 
 		def end = right
 
-		override def toString(): String = "%s(%s,%s)".format(label, left, right)	
+    def isTerminal = !isUnary && width == 1
+
+		override def toString(): String = "%s(%s,%s,%d)".format(label, left, right, height)
 }

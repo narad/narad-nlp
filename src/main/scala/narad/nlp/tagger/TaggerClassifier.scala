@@ -14,6 +14,8 @@ import collection.mutable.{HashMap, ArrayBuffer, Map}
  * To change this template use File | Settings | File Templates.
  */
 
+/*
+
 class TaggerClassifier(pv: Array[Double], dict: TagDictionary, index: Index[String], params: TaggerParams) extends TaggerFeatures {
   val LABEL_PATTERN  = """ulabel\(([0-9]+),(.+)\)""".r
 
@@ -68,3 +70,5 @@ class TaggerClassifier(pv: Array[Double], dict: TagDictionary, index: Index[Stri
     return new PotentialExample(map, pots, featmap)
   }
 }
+
+*/

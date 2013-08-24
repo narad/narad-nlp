@@ -4,6 +4,7 @@ import narad.bp.optimize._
 import narad.bp.util._
 import narad.bp.util.index._
 import narad.io.conll.CoNLLReader
+import java.io.File
 
 object Tagger extends TaggerFeatures {
 	var dict = new TagDictionary
@@ -42,13 +43,18 @@ object Tagger extends TaggerFeatures {
 
     if (params.TRAIN) {
       val optimizer = if (params.GROUP_REGULARIZER) {
-        new Optimizer(tagger, params) with GroupRegularizer
+        new Optimizer(tagger, params) //with GroupRegularizer
       }
       else {
-        new Optimizer(tagger, params) with L2Regularizer
+        new Optimizer(tagger, params)// with L2Regularizer
       }
       val data = new PotentialReader(params.TRAIN_FIDX_FILE)
       optimizer.train(data)
+    }
+
+    for (attr <- params.ATTRIBUTES) {
+      val f = new File("test.tagged." + attr)
+      f.delete()
     }
 
     if (params.TEST) {

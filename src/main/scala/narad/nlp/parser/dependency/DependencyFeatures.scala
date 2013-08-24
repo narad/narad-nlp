@@ -288,7 +288,7 @@ trait DependencyParseFeatures {
   }
 
   def groupedWordLevelDependencyFeatures(words: Array[String], ohead: Int, odep: Int): Array[StringFeature] = {
-    wordLevelDependencyFeatures(words, ohead, odep).map(f => StringFeature(f, 1.0, 1))
+    wordLevelDependencyFeatures(words, ohead, odep).map(f => new StringFeature(f, 1.0, 1))
   }
 }
 

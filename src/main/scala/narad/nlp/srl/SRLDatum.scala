@@ -3,21 +3,11 @@ package narad.nlp.srl
 import narad.util.ArgParser
 import narad.bp.structure.Potential
 import scala.collection.mutable.{ArrayBuffer, HashSet}
+import narad.bp.optimize.Scorable
+import narad.nlp.parser.metrics.EvalBContainer
 
-case class SRLArg(aidx: Int, word: String, label: String) {
-	override def toString = "%d-%s".format(aidx, label)
-}
 
-case class SRLFrame(pidx: Int, sense: String, args: Array[SRLArg]) {
-	def countLabel(label: String): Int = args.filter(_.label == label).size
-	override def toString = "%s: %s".format(sense, args.mkString(", "))
-}
-
-case class SRLToken(word: String, lemma: String, pos: String, cpos: String, morph: String = "") {
-	override def toString = "(%s %s)".format(pos, word)
-}
-
-class SRLDatum(grid: Array[Array[String]]) {
+class SRLDatum(grid: Array[Array[String]]) extends Scorable {
 	private val preds = constructPreds(grid)
 	private val args  = constructArgs(grid)
 
@@ -64,7 +54,11 @@ class SRLDatum(grid: Array[Array[String]]) {
 		}
 	}
 
+  def size = slen
+
 	def labels = frames.map(_.args.map(_.label)).flatten.distinct.filter(_ != "_")
+
+  def length = slen
 
 	def lemma(i: Int) = grid(i-1)(2)
 
@@ -111,6 +105,13 @@ class SRLDatum(grid: Array[Array[String]]) {
 	def slen = grid.size
 
   def words = forms
+
+  def score(other: Scorable): SRLEvalContainer = {
+    other match {
+      case that: SRLDatum => SRLEvalContainer.construct(goldSRL=that, testSRL=this)
+      case _=> new SRLEvalContainer()
+    }
+  }
 	
 	def tokens: Array[SRLToken] = {
 		(1 to slen).toArray.map{i => new SRLToken(form(i), lemma(i), postag(i), ppostag(i), feat(i))}

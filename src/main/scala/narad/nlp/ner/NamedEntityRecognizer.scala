@@ -1,7 +1,13 @@
 package narad.nlp.ner
 
 import narad.nlp.tagger.TagDictionary
-import narad.bp.optimize.{OptimizerOptions, L2Regularizer, Optimizer}
+import narad.bp.optimize.{OptimizerOptions, Optimizer}
+import narad.nlp.parser.constituent.{TreebankStatistics, ConstituentLabelParser, ConstituentBracketParser, ConstituentParserParams}
+import narad.bp.util.index.{ArrayIndex, HashIndex, Index}
+import narad.io.tree.{TreebankReader, TreebankReaderOptions}
+import collection.immutable.HashSet
+
+//L2Regularizer
 import narad.bp.util.PotentialReader
 import narad.util.ArgParser
 import narad.bp.structure.ModelOptions
@@ -16,6 +22,65 @@ import narad.io.onto._
  */
 object NamedEntityRecognizer {
 
+  def main(args: Array[String]) {
+    val params = new NamedEntityParams(args)
+    val ner = new NamedEntityModel(params)
+    if (params.EXTRACT_FEATURES) {
+      System.err.println("Extracting features...")
+      val index = if (params.HASH_DICT) new HashIndex(params.PV_SIZE) else new ArrayIndex[String]()
+      val reader = new OntoReader(params.TRAIN_NER_FILE, params.TRAIN_SYNTAX_FILE)
+      val stats = TreebankStatistics.construct(reader.map(_.tree).iterator, params.PRUNE)
+      val labels = reader.foldLeft(new HashSet[String])(_ ++ _.ner.labels.toSet)
+      ner.extractFeatures(params.TRAIN_NER_FILE, params.TRAIN_SYNTAX_FILE, params.TRAIN_FEATURE_FILE, index, labels.toArray, stats, params)
+      ner.extractFeatures(params.TEST_NER_FILE, params.TEST_SYNTAX_FILE, params.TEST_FEATURE_FILE, index, labels.toArray, stats, params)
+      if (!params.HASH_DICT) index.writeToFile("feats.index")
+    }
+    if (params.TRAIN) {
+      val optimizer = new Optimizer(ner, params)
+      val data = new PotentialReader(params.TRAIN_FIDX_FILE)
+      optimizer.train(data)
+    }
+    if (params.TEST) {
+      val optimizer = new Optimizer(ner, params)
+      val data = new PotentialReader(params.TEST_FIDX_FILE)
+      optimizer.test(data)
+    }
+  }
+}
+
+/*
+    val params = new ConstituentParserParams(args)
+    //   println(params.MODEL)
+    val parser = params.MODEL match {
+      case "BRACK" => new ConstituentBracketParser(params)
+      case "LABEL" => new ConstituentLabelParser(params)
+    }
+    if (params.EXTRACT_FEATURES) {
+      System.err.println("Extracting features...")
+      val index = if (params.HASH_DICT) new HashIndex(params.PV_SIZE) else new ArrayIndex[String]()
+      val treeOptions = TreebankReaderOptions.fromCommandLine(new ArgParser(args))
+      val reader = new TreebankReader(params.TRAIN_FILE, treeOptions)
+      val stats = TreebankStatistics.construct(reader.iterator, params.PRUNE)
+      stats.writeToFile("train.stats")
+      parser.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, stats, index, params)
+      parser.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, stats, index, params)
+      if (!params.HASH_DICT) index.writeToFile("feats.index")
+    }
+    else if (params.TRAIN) {
+      val optimizer = new Optimizer(parser, params) //with L2Regularizer
+      val data = new PotentialReader(params.TRAIN_FIDX_FILE)
+      optimizer.train(data)
+    }
+    else if (params.TEST) {
+      val optimizer = new Optimizer(parser, params)
+      val data = new PotentialReader(params.TEST_FIDX_FILE)
+      optimizer.test(data)
+    }
+  }
+}
+
+*/
+/*
   def main(args: Array[String]) = {
     val params = new NamedEntityParams(args)
     val ner = new NamedEntityModel(params)
@@ -31,55 +96,18 @@ object NamedEntityRecognizer {
       ner.extractFeatures(params.TEST_NER_FILE, params.TEST_SYNTAX_FILE, params.TEST_FEATURE_FILE, labels, 10, params)
     }
     else if (params.getBoolean("--train")) {
-      val optimizer = new Optimizer(ner, params) with L2Regularizer
-      val data = new PotentialReader(params.TRAIN_FIDX_FILE)
-      optimizer.train(data)
+ //     val optimizer = new Optimizer(ner, params)// with L2Regularizer
+ //     val data = new PotentialReader(params.TRAIN_FIDX_FILE)
+ //     optimizer.train(data)
     }
     else if (params.getBoolean("--test")) {
-      val optimizer = new Optimizer(ner, params)
-      val data = new PotentialReader(params.TEST_FIDX_FILE)
-      optimizer.test(data)
+ //     val optimizer = new Optimizer(ner, params)
+ //     val data = new PotentialReader(params.TEST_FIDX_FILE)
+ //     optimizer.test(data)
     }
   }
 }
+*/
 
-
-class NamedEntityParams(args: Array[String]) extends ArgParser(args) with ModelOptions with OptimizerOptions {
-
-  def LABEL_TYPE = getString("--label.type", "FINE")
-
-  def PRINT_INTERVAL = getInt("--print.interval", 100)
-  def TRAIN_FIDX_FILE = getString("--train.fidx.file", "train.fidx")
-  def TEST_FIDX_FILE  = getString("--test.fidx.file", "test.fidx")
-  def TRAIN_FEATURE_FILE = getString("--train.feature.file", "train.feats")
-  def TEST_FEATURE_FILE = getString("--test.feature.file", "test.feats")
-  def TRAIN_NER_FILE = getString("--train.ner.file")
-  def TEST_NER_FILE  = getString("--test.ner.file")
-  def TRAIN_SYNTAX_FILE = getString("--train.syntax.file")
-  def TEST_SYNTAX_FILE  = getString("--test.syntax.file")
-
-  def VARIANCE = getDouble("--variance", 1.0)
-  def RATE = getDouble("--rate", .01)
-  def PV_SIZE = getInt("--pv.size", -1)
-  def TRAIN_ITERATIONS = getInt("--train.iterations", 10)
-  def TRAIN_ORDER = getString("--train.order", "NORMAL")
-  def MODEL_OUTPUT_FILE = getString("--model.output.file", "model")
-  def INIT_FILE = getString("--init.file")
-  def BATCH_SIZE = getInt("--batch.size", 1)
-  def AVERAGE_LAST = getBoolean("--average.last", false)
-  def TIME = getBoolean("--time", false)
-
-  def DAMP_INIT = getDouble("--damp.init", 1.0)
-  def DAMP_RATE = getDouble("--damp.rate", 0.01)
-  def DIFF_THRESHOLD = getDouble("--diff.threshold", 0.001)
-  def INFERENCE_ITERATIONS = getInt("--inference.iterations", 10)
-  def VERBOSE = getBoolean("--verbose", false)
-
-  def GROUP1_REG = getDouble("--group.reg.1", 1.0)
-  def GROUP2_REG = getDouble("--group.reg.2", 1.0)
-  def GROUP3_REG = getDouble("--group.reg.3", 1.0)
-
-
-}
 
 

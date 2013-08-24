@@ -7,55 +7,6 @@ import narad.util.RegexPatterns
 
 trait NamedEntityFeatures {
 
-  def extractFeatures(trainNerFile: String, trainSyntaxFile: String, trainFeatureFile: String, labels: Array[String],
-                      order: Int, params: NamedEntityParams) = {
-    val reader = new OntoReader(trainNerFile, trainSyntaxFile, params)
-    val out = new FileWriter(trainFeatureFile)
-    reader.zipWithIndex.foreach { case(datum, i) =>
- //     if (i % params.PRINT_INTERVAL == 0) System.err.println("  example %d...".format(i))
-      val slen = datum.slen
-      val ner = datum.ner
-      val tokens = datum.tokens
-      System.err.println("IN extract features for NER")
-      out.write("@slen\t%d\n".format(slen))
-      out.write("@maxseg\t%d\n".format(order))
-      out.write("@labels\t%s\n".format(labels.mkString(" ")))
-      for (j <- slen to 1 by -1) {
-        var labeled = false
-        for (i <- scala.math.max(0, j-order) to j-1) {
-          val width = j-i
-          val feats = nerFeatures(tokens, i, j)
-          val correctSpan = if (ner.containsSpan(i,j) || (width == 1 && !ner.coversSpan(i,j))) "+" else ""
-          out.write("nerbracket(%d,%d)\t%s%s\n".format(i, j, correctSpan, feats.mkString(" ")))
-
-          val correctLabel = if ((!ner.containsSpan(i,j) && width > 1) || (width == 1 && ner.coversSpan(i,j))) "+" else ""
-          out.write("nerlabel(%d,%d,0)\t%sNone\n".format(i, j, correctLabel))
-
-          if (width == 1) {
-            val builder = new StringBuilder()
-            for (f <- feats) builder.append("O_" + f)
-            if (!ner.containsSpan(i,j) && !ner.coversSpan(i,j)) {
-              out.write("nerlabel(%d,%d,1)\t+%s\n".format(i,j, builder.toString.trim))
-            }
-            else {
-              out.write("nerlabel(%d,%d,1)\t%s\n".format(i,j, builder.toString.trim))
-            }
-          }
-
-          for (label <- labels) {
-            val builder = new StringBuilder()
-            for (f <- feats) builder.append(" " + label + "_" + f)
-            val correctLabel = if (ner.containsSpanLabel(i,j,label)) "+" else ""
-            out.write("nerlabel(%d,%d,%s)\t%s%s\n".format(i, j, labels.indexOf(label)+2, correctLabel, builder.toString.trim))
-          }
-        }
-      }
-      out.write("\n")
-    }
-    out.close()
-  }
-
-
   def connectionFeatures(tokens: Array[TaggedToken], start: Int, end: Int): Array[String] = {
     val sent = tokens
     val features = new ArrayBuffer[String]
@@ -80,27 +31,6 @@ trait NamedEntityFeatures {
     features += "AG_STARTEND_CPOS-%s_%s".format(sent(start).pos.substring(0,1), sent(end-1).pos.substring(0,1))
     features.toArray
   }
-
-  def pad(array: Array[TaggedToken], spad: Int, epad: Int): Array[TaggedToken] = {
-    val STARTPOS = "START"
-    val ENDPOS = "END"
-    val buffer = new ArrayBuffer[TaggedToken]
-    val end = spad + epad + array.size
-    for (i <- 0 until end){
-      if (i < spad){
-        buffer += new TaggedToken("[START%d]".format(spad-i), STARTPOS)
-      }
-      else if (i >= array.size + spad){
-        buffer += new TaggedToken("[END%d]".format(1 + i - (array.size + spad)), ENDPOS)
-      }
-      else{
-        buffer += array(i-spad)
-      }
-    }
-    return buffer.toArray
-  }
-
-
 
 def nerFeatures(tokens: Array[TaggedToken], i: Int, j: Int): Array[String] = {
 		val feats = new ArrayBuffer[String]
@@ -179,8 +109,8 @@ def nerFeatures(tokens: Array[TaggedToken], i: Int, j: Int): Array[String] = {
 
 	def wordshape(str: String, rep: Int): String = {
 		replaceRepitition(str.map { c =>
-			if (c.toUpperCase == c) "A"
-			else if (c.toLowerCase == c) "a"
+			if (c.toUpper == c) "A"
+			else if (c.toUpper == c) "a"
 			else if (c.toString matches "[0-9]") "1"
 			else if (c == ' ') " "
 			else c
@@ -213,7 +143,7 @@ def nerFeatures(tokens: Array[TaggedToken], i: Int, j: Int): Array[String] = {
 		case RegexPatterns.NumericPattern => "NUMERIC"
 		case RegexPatterns.DayPattern => "DAY"
 		case RegexPatterns.MonthPattern => "MONTH"
-		case RegexPatterns.NumericPattern => "WRITTEN-NUMBER"
+//		case RegexPatterns.NumericPattern => "WRITTEN-NUMBER"
 		case RegexPatterns.OrdinalPattern => "ORDINAL"
 		case RegexPatterns.TimePattern => "TIME"
 		case RegexPatterns.DirectionPattern => "CARDINAL-DIRECTION"
@@ -231,6 +161,31 @@ def nerFeatures(tokens: Array[TaggedToken], i: Int, j: Int): Array[String] = {
 
 
 
+
+
+
+
+
+/*
+  def pad(array: Array[TaggedToken], spad: Int, epad: Int): Array[TaggedToken] = {
+    val STARTPOS = "START"
+    val ENDPOS = "END"
+    val buffer = new ArrayBuffer[TaggedToken]
+    val end = spad + epad + array.size
+    for (i <- 0 until end){
+      if (i < spad){
+        buffer += new TaggedToken("[START%d]".format(spad-i), STARTPOS)
+      }
+      else if (i >= array.size + spad){
+        buffer += new TaggedToken("[END%d]".format(1 + i - (array.size + spad)), ENDPOS)
+      }
+      else{
+        buffer += array(i-spad)
+      }
+    }
+    return buffer.toArray
+  }
+      */
 
 
 

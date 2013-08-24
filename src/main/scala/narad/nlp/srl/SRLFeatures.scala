@@ -1,17 +1,21 @@
 package narad.nlp.srl
-import scala.collection.mutable.{ArrayBuffer}
+import collection.mutable.{HashMap, ArrayBuffer}
 import java.io.FileWriter
 import scala.math._
+import narad.bp.structure.Potential
+import narad.bp.util.{PotentialExample, Feature}
+import narad.bp.util.index.{Index, ArrayIndex, HashIndex}
 
 
 trait SRLFeatures {
   val dummyToken = SRLToken("ROOT", "ROOT_LEMMA", "ROOT_POS", "ROOT_CPOS")
 
-  def extractSRLFeatures(datum: SRLDatum, dict: SRLDictionary, out: FileWriter,
-                         labelCorrect: Boolean, prune: Boolean = true, maxdist: Int, srlmode: Int = 1) = {
-    val slen = datum.slen
+  def extractSRLFeatures(datum: SRLDatum, dict: SRLDictionary, index: Index[String],
+                         labelCorrect: Boolean, prune: Boolean = true, maxdist: Int, params: SRLParams): PotentialExample = {
+   val ex = new PotentialExample
     val tokens = Array(dummyToken) ++ datum.tokens ++ Array(dummyToken)
-    for (i <- 1 to slen if datum.hasPred(i)) {
+    // Sense Features
+    for (i <- 1 to datum.slen if datum.hasPred(i)) {
       val lemma = datum.lemma(i)
       val senseFeats = senseFeatures(i, tokens)
       val senses = dict.senses(lemma)
@@ -19,32 +23,75 @@ trait SRLFeatures {
         var senseCount = 0
         if (dict.containsSense(datum.lemmas(i-1))) {
           for (sense <- senses) {
-            val senseFeats = senseFeatures(i, tokens)
-            val senseLabel = if (datum.hasSense(i, sense) && labelCorrect) "+" else ""
-            out.write("sense(%d,%d)\t%ssense-%s\n".format(i, senseCount, senseLabel, senseFeats.map("%s-%s".format(sense, _)).mkString(" ")))
+            val potname = "sense(%d,%d)".format(i, senseCount)
+            ex.potentials += new Potential(1.0, potname, (datum.hasSense(i, sense) && labelCorrect))
+            ex.features(potname) = senseFeatures(i, tokens).map{f => new Feature(index.index("%s-%s".format(sense, f)), 1.0, 0)}
             senseCount += 1
           }
         }
-        else {
-          val senseFeats = senseFeatures(i, tokens)
-          val sense = senses(0)
-          val senseLabel = if (labelCorrect) "+" else ""
-          out.write("sense(%d,0)\t%ssense-%s\n".format(i, senseLabel, senseFeats.map("%s-%s".format(sense, _)).mkString(" ")))
+        else { // For an unseen word
+          val potname = "sense(%d,%d)".format(i, senseCount)
+          ex.potentials += new Potential(1.0, potname, labelCorrect)
+          ex.features(potname) = senseFeatures(i, tokens).map{f => new Feature(index.index("%s-%s".format(senses(0), f)), 1.0, 0)}
         }
       }
       // Argument Features
       val roles = dict.roles.toArray
-      val abound = if (prune) maxdist else slen
-        for (j <- 1 to slen if abs(i-j) <= abound) {
-          val afeatures = argumentFeatures(j, i, tokens, srlmode)
-          val alabel = if (datum.hasArg(i, j) && labelCorrect) "+" else ""
-          out.write("hasArg(%d,%d)\t%s%s\n".format(i, j, alabel, afeatures.mkString(" ")))
+      val abound = if (prune) maxdist else datum.slen
+        for (j <- 1 to datum.slen if abs(i-j) <= abound) {
+          val afeatures = argumentFeatures(j, i, tokens, params)
+          val alabel =  (datum.hasArg(i, j) && labelCorrect) // "+" else ""
+          val potname1 = "hasArg(%d,%d)".format(i, j)
+          ex.potentials += new Potential(1.0, potname1, alabel)
+          ex.features(potname1) = afeatures.map{f => new Feature(index.index(f), 1.0, 0)}
           var found = false
           for (k <- 0 until roles.size) {
+            val potname2 = "hasLabel(%d,%d,%d)".format(i, j, k)
+            val roleIsCorrect = if (k < roles.size-1) {
+              datum.hasArgLabel(i, j, roles(k)) && labelCorrect
+            }
+            else {
+              !found && datum.hasArg(i, j) && labelCorrect
+            }
+            ex.potentials += new Potential(1.0, potname2, datum.hasArgLabel(i, j, roles(k)) && roleIsCorrect)
+            ex.features(potname2) = afeatures.map{f => new Feature(index.index("%s-%s".format(roles(k), f)), 1.0, 0)}
+            found = datum.hasArgLabel(i, j, roles(k)) || found
+          }
+        }
+       if (params.MODEL_VALENCY) {
+         for (i <- 1 to datum.slen if datum.hasPred(i)) {
+           for (k <- 0 until roles.size) {
+             var roleCount = 0
+             for (j <- 1 to datum.slen if datum.hasArgLabel(i, j, roles(k))) roleCount += 1
+/*
+             ex.addPotential(new Potential(1.0, "hasArg(%d,%d)".format(i, j), alabel),
+                             afeatures.map{f => new Feature(index.index(f), 1.0, 0)})
+             val potname1 = "hasArg(%d,%d)".format(i, j)
+             ex.potentials += new Potential(1.0, potname1, alabel)
+             ex.features(potname1) = afeatures.map{f => new Feature(index.index(f), 1.0, 0)}
+
+             val potname1 = "hasArg(%d,%d)".format(i, j)
+             ex.potentials += new Potential(1.0, potname1, alabel)
+             ex.features(potname1) = afeatures.map{f => new Feature(index.index(f), 1.0, 0)}
+*/
+           }
+         }
+       }
+      }
+    ex
+  }
+
+  //ex.potentials += new Potential(1.0, potname, !found && alabel == "+" && labelCorrect)
+  //          out.write("hasArg(%d,%d)\t%s%s\n".format(i, j, alabel, afeatures.mkString(" ")))
+  //          out.write("sense(%d,0)\t%ssense-%s\n".format(i, senseLabel, senseFeats.map("%s-%s".format(sense, _)).mkString(" ")))
+  //  out.write("sense(%d,%d)\t%ssense-%s\n".format(i, senseCount, senseLabel, senseFeats.map("%s-%s".format(sense, _)).mkString(" ")))
+  //  out.write("hasLabel(%d,%d,%d)\t%s%s\n".format(i, j, k, if (labelCorrect) "+" else "", builder.toString.trim))
+
+
+  /*
             val builder = new StringBuilder()
             for (f <- afeatures) builder.append(" " + roles(k) + "_" + f)
             if (datum.hasArgLabel(i, j, roles(k))) {
-              out.write("hasLabel(%d,%d,%d)\t%s%s\n".format(i, j, k, if (labelCorrect) "+" else "", builder.toString.trim))
               builder.clear
               found = true
             }
@@ -60,37 +107,51 @@ trait SRLFeatures {
           }
         }
       }
-    }
+    ex  // new PotentialExample(attributes, potentials, featureMap)
+  }
+  */
 
 
 
-  def extractConnectionFeatures(datum: SRLDatum, out: FileWriter, labelHidden: Boolean = true, gpreds: Array[Int], abound: Int) = {
+  def extractConnectionFeatures(datum: SRLDatum, index: Index[String], gpreds: Array[Int], maxDist: Int, params: SRLParams): PotentialExample = {
     val slen = datum.slen
     val words = datum.forms
     val tags  = datum.postags
     val tokens = Array(dummyToken) ++ datum.tokens
     val heads = Array(-1) ++ datum.heads //Array(-1) ++ lines.map(_.split("\t")(8).toInt)
-    for (i <- 0 to slen; j <- 1 to slen if i != j && datum.hasPred(i) && abs(i-j) <= abound) {
-      val label = if (datum.hasArg(i, j) && heads(j) == i && labelHidden) "+" else ""
-      out.write("sslink(%d,%d)\t%s%s\n".format(i, j, label, connectFeatures(tokens, i, j).mkString(" ")))
+    val ex = new PotentialExample
+    for (i <- 0 to slen; j <- 1 to slen if i != j && datum.hasPred(i) && abs(i-j) <= maxDist) {
+//      val label = if (datum.hasArg(i, j) && heads(j) == i && labelHidden) "+" else ""
+//      out.write("sslink(%d,%d)\t%s%s\n".format(i, j, label, connectFeatures(tokens, i, j).mkString(" ")))
+      val potname = "sslink(%d,%d)".format(i,j)
+      ex.potentials += new Potential(1.0, potname, datum.hasArg(i, j) && heads(j) == i && params.MODEL != "HIDDEN")
+      ex.features(potname) = connectFeatures(tokens, i, j).map{f => new Feature(index.index(f), 1.0, 0)}
     }
+    ex
   }
 
-  def extractSyntacticFeatures(datum: SRLDatum, out: FileWriter, labelHidden: Boolean = true, mode: Int = 1) = {
+  def extractSyntacticFeatures(datum: SRLDatum, index: Index[String], params: SRLParams): PotentialExample = {
     val slen = datum.slen
+    val ex = new PotentialExample()
     val tokens = Array(dummyToken) ++ datum.tokens
     val heads = Array(-1) ++ datum.heads
-    val skip = mode == 0
     for (i <- 0 to slen; j <- 1 to slen if i != j) {
-      val label = if (heads(j) == i && labelHidden) "+" else ""
-      if (skip) {
-        out.write("un(%d,%d)\t%s%s\n".format(i, j, label, "X_DUMMY"))
+      val label = (heads(j) == i && params.MODEL != "HIDDEN") // "+" else ""
+      val potname = "un(%d,%d)".format(i, j)
+      ex.potentials += new Potential(1.0, potname, label)
+      if (params.MODEL == "ORACLE") {
+      //  out.write("un(%d,%d)\t%s%s\n".format(i, j, label, "X_DUMMY"))
+        ex.features(potname) = Array[Feature]() //new Feature(index.index("X_DUMMY"), 1.0, 0))
       }
       else {
-        val feats = morphDependency(tokens, i, j).mkString(" ")
-        out.write("un(%d,%d)\t%s%s\n".format(i, j, label, feats))
+//        val feats = morphDependency(tokens, i, j).mkString(" ")
+//        out.write("un(%d,%d)\t%s%s\n".format(i, j, label, feats))
+//        val potname = "un(%d,%d)".format(i, j)
+//        ex.potentials += new Potential(1.0, potname, label)
+        ex.features(potname) = morphDependency(tokens, i, j).map(f => new Feature(index.index(f), 1.0, 0))
       }
     }
+    ex
   }
 
 
@@ -146,8 +207,10 @@ trait SRLFeatures {
 
 
 
-  def argumentFeatures(aidx: Int, pidx: Int, tokens: Array[SRLToken], mode: Int = 2, morph: Boolean = false): Array[String] = {
+  def argumentFeatures(aidx: Int, pidx: Int, tokens: Array[SRLToken], params: SRLParams): Array[String] = {
     val feats = new ArrayBuffer[String]
+    val mode = 2
+
     val pred = tokens(pidx)
     val arg  = tokens(aidx)
     val dist = Math.abs(aidx - pidx)
@@ -175,7 +238,7 @@ trait SRLFeatures {
     }
 
     if (mode >= 3) {
-      feats += "slen-%d".format(tokens.size)
+//      feats += "slen-%d".format(tokens.size)
       feats += "dir-%s".format(dir)
       feats += "dist-%d".format(dist)
       feats += "dir-dist-%s-%d".format(dir, dist)

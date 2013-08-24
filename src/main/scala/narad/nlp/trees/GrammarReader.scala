@@ -4,6 +4,7 @@ import narad.io.tree.TreebankReader
 import narad.util.ArgParser
 import java.io.FileWriter
 import scala.collection.mutable.{HashMap, HashSet}
+/*
 
 object GrammarReader {
 	
@@ -20,16 +21,16 @@ object GrammarReader {
 				binarizedGrammar ++= tree.binarize().extractRules
 			}
 			val f1 = new FileWriter("nonterms.gold")
-			f1.write(goldGrammar.map(rule => rule.substring(0, rule.indexOf("=>")-1)).toList.sort((a,b) => a < b).mkString("\n")) 
+			f1.write(goldGrammar.map(rule => rule.substring(0, rule.indexOf("=>")-1)).toList.sortBy((a,b) => a < b).mkString("\n"))
 			f1.close()
 			val f2 = new FileWriter("nonterms.binarized")
-			f2.write(binarizedGrammar.map(rule => rule.substring(0, rule.indexOf("=>")-1)).toList.sort((a,b) => a < b).mkString("\n")) 
+			f2.write(binarizedGrammar.map(rule => rule.substring(0, rule.indexOf("=>")-1)).toList.sortBy((a,b) => a < b).mkString("\n"))
 			f2.close()
 			val f3 = new FileWriter("grammar.gold")  
-			f3.write(goldGrammar.toList.sort((a,b) => a < b).mkString("\n"))
+			f3.write(goldGrammar.toList.sortBy((a,b) => a < b).mkString("\n"))
 			f3.close()
 			val f4 = new FileWriter("grammar.binarized") 
-			f4.write(binarizedGrammar.toList.sort((a,b) => a < b).mkString("\n"))
+			f4.write(binarizedGrammar.toList.sortBy((a,b) => a < b).mkString("\n"))
 			f4.close()
 		}
 		
@@ -37,19 +38,19 @@ object GrammarReader {
 		def extractWeightedGrammar(trees: Array[ConstituentTree]) = {
 			val grammarCounts = new HashMap[String, Int]
 			val parentCounts  = new HashMap[String, Int]
-			for (tree <- trees; t <- tree if !t.isPreterminal) {
-				val rule = Rule(t.label(), t.children.map(_.label())).toString
+			for (tree <- trees; t <- tree.breadthFirstSearch if !t.isLeaf) {
+				val rule = Rule(t.label, t.getChildren.map(_.label).toArray).toString
 				if (grammarCounts.contains(rule)) {
 					grammarCounts(rule) += 1
 				}
 				else {
 					grammarCounts(rule) = 1
 				}
-				if (parentCounts.contains(t.label())) {
-					parentCounts(t.label()) += 1
+				if (parentCounts.contains(t.label)) {
+					parentCounts(t.label) += 1
 				}			
 				else {
-					parentCounts(t.label()) = 1
+					parentCounts(t.label) = 1
 				}
 			}
 
@@ -77,8 +78,8 @@ object GrammarReader {
 			val pruneFile						 = options.getString("--prune.file", "prune.pots")
 
 			var trees = TreebankReader.read(treeFile, options)
-			printGrammar(trees.toArray)
+//			printGrammar(trees.toArray)
 			return null.asInstanceOf[Grammar]
 	}
 	
-}
+}*/

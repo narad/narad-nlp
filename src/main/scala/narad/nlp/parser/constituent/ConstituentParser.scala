@@ -1,21 +1,17 @@
 package narad.nlp.parser.constituent
 
-import narad.bp.optimize.{L2Regularizer, Optimizer}
+import narad.bp.optimize.Optimizer
 import narad.bp.util.{PotentialExample, PotentialReader}
-import narad.io.tree.TreebankReader
-import narad.bp.structure._
-import narad.bp.inference.{InferenceOrder, BeliefPropagation}
-import collection.mutable.{ArrayBuffer, HashSet}
-import java.io.FileWriter
-import narad.bp.structure.Potential
-import narad.bp.util.PotentialExample
-import scala.util.matching.Regex
-import narad.nlp.trees._
+import narad.bp.util.index.{Index, ArrayIndex, HashIndex}
+import narad.bp.structure.{FactorGraph, FactorGraphBuilder, Potential}
+import java.io.{File, FileWriter}
 import narad.io.tree._
-import scala.collection.mutable.Queue
-import narad.bp.util.index._
+import narad.util.ArgParser
+import collection.mutable.{ArrayBuffer, HashMap, HashSet}
+import narad.nlp.trees.{ConstituentTree => Tree, GrammarRule => Rule, WeightedGrammar}
 
 object ConstituentParser {
+  private val RULE_PATTERN = """\"([^\"= ]+) => ([^\"]+)\" (.*)""".r
 
   def main(args: Array[String]) = {
     val params = new ConstituentParserParams(args)
@@ -23,322 +19,134 @@ object ConstituentParser {
     val parser = params.MODEL match {
       case "BRACK" => new ConstituentBracketParser(params)
       case "LABEL" => new ConstituentLabelParser(params)
+      case "GRAMMAR" => new ConstituentLabelParser(params)
     }
     if (params.EXTRACT_FEATURES) {
       System.err.println("Extracting features...")
-      val reader = new TreebankReader(params.TRAIN_FILE)
-      val index = new ArrayIndex[String]()
-      val stats = TreebankStatistics.construct(new TreebankReader(params.TRAIN_FILE).iterator)
+      val index = if (params.HASH_DICT) new HashIndex(params.PV_SIZE) else new ArrayIndex[String]()
+      val treeOptions = TreebankReaderOptions.fromCommandLine(new ArgParser(args))
+      val reader = new TreebankReader(params.TRAIN_FILE, treeOptions)
+      val stats = TreebankStatistics.construct(reader.iterator, params.PRUNE)
+      stats.writeToFile("train.stats")
       parser.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, stats, index, params)
       parser.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, stats, index, params)
-      /*
-            val trees = util.iterator.toArray
-            val btrees = trees.map(_.binarize.removeUnaryChains())
-            trees.foreach(_.annotateWithIndices(0))
-            btrees.foreach(_.annotateWithIndices(0))
-            val blabels = btrees.map(_.nonterminals.map(_.label).toArray).flatten.distinct.sortBy(_.toString)
-            val ulabels = trees.map(_.nonterminals.map(_.label).toArray).flatten.distinct.sortBy(_.toString)     // ***FIX THIS LINE
-            //      val ulabels = trees.map(_.map(_.label()).toArray).toArray.flatten.distinct.sortBy(_.toString)
-            //      val blabels  = btrees.map(_.map(_.label()).toArray).toArray.flatten.distinct.sortBy(_.toString)
-            System.err.println("Using labels:\n%s".format(blabels.mkString("\n")))
-            parser.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, blabels, ulabels, params)
-            parser.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, blabels, ulabels, params)
-      */
+      if (!params.HASH_DICT) index.writeToFile("feats.index")
     }
-    else if (params.TRAIN) {
-      val optimizer = new Optimizer(parser, params) with L2Regularizer
+    if (params.TRAIN) {
+      val optimizer = new Optimizer(parser, params) //with L2Regularizer
       val data = new PotentialReader(params.TRAIN_FIDX_FILE)
-      optimizer.train(data)
+      if (params.MODEL == "GRAMMAR") {
+        System.out.println("training grammar parser with SGD.")
+        val initFile = params.INIT_FILE
+        assert(initFile != null && new File(initFile).exists(), "Model file for testing is not specified or does not exist.")
+        val pv = optimizer.init(data, initFile, params.PV_SIZE)
+        val rate = params.GRAMMAR_LEARN_RATE // / trueTrees.size.toDouble)
+        var grammar = readGrammarParams(params.GRAMMAR_FILE)
+        for (i <- 1 to params.GRAMMAR_TRAIN_ITERATIONS) {
+          for (ex <- data) {
+            val builder = parser.constructFromExample(ex, pv).graph.toBuilder
+            addRules(builder, grammar, ex.attributes.getOrElse("slen", "-1").toInt)
+            val testInstance = new ConstituentParserModelInstance(builder.toFactorGraph, ex)
+            optimizer.infer(testInstance, params)
+            val testTree = parser.decode(testInstance)
+            val trueTree = parser.fromPotentialExample(ex, pv)
+            grammar = calculateUpdates(testTree, trueTree, grammar, rate, backoff=false, verbose=false)
+          }
+          writeGrammar(grammar, "grammar." + i + ".pv")
+        }
+      }
+      else {
+        optimizer.train(data)
+      }
     }
-    else if (params.TEST) {
+    if (params.TEST) {
       val optimizer = new Optimizer(parser, params)
       val data = new PotentialReader(params.TEST_FIDX_FILE)
       optimizer.test(data)
     }
   }
-}
 
-class ConstituentParser(params: ConstituentParserParams) extends FactorGraphModel with ConstituentBracketFeatures with BeliefPropagation {
-  val INDICES_PATTERN = """.*\(([0-9]+),([0-9]+).*""".r
-  val LABEL_PATTERN1   = """spanLabel(.*)\(([0-9]+),([0-9]+)\).*""".r
-  val LABEL_PATTERN2   = """.*\(([0-9]+),([0-9]+),([0-9]+).*""".r
-
-  val BRACK_PATTERN       = """brack\(([0-9]+),([0-9]+)\)""".r
-  val UNARY_PATTERN       = """unary\(([0-9]+),([0-9]+)\)""".r
-  val UNARY_LABEL_PATTERN1 = """unaryLabel(.*)\(([0-9]+),([0-9]+)\)""".r
-  val UNARY_LABEL_PATTERN2 = """unaryLabel\(([0-9]+),([0-9]+),(.+)\)""".r
-
-
-  def constructFromExample(ex: PotentialExample, pv: Array[Double]): ModelInstance = {
-    val slen   = ex.attributes.getOrElse("slen", "-1").toInt
-    val pots = ex.exponentiated(pv)
-    println("\n\nEXPONENTED:\n" + pots.mkString("\n"))
-    val fg = new FactorGraphBuilder(pots)
-
-    val groups = pots.filter(!_.name.contains("unary")).groupBy{p =>
-      val INDICES_PATTERN(start, end) = p.name
-      (start.toInt, end.toInt)
-    }
-    var useLabels = false
-    val brackIdxs = Array.ofDim[Int](slen+1, slen+1) //new ArrayBuffer[Int]()
-    val labelIdxs = Array.fill[ArrayBuffer[Int]](slen+1, slen+1)(new ArrayBuffer[Int])
-    for (width <- 2 to slen; start <- 0 to (slen - width)) {
-      val end = start + width
-      val gpots = groups((start, end))
-      brackIdxs(start)(end) = fg.addVariable("brackvar(%d,%d)".format(start, end), arity=2)
-      fg.addUnaryFactor("brackvar(%d,%d)".format(start, end), "brackfac(%d,%d)".format(start, end), gpots(0))
-      if (gpots.size > 1) {
-        useLabels = true
-        for (gpot <- gpots.tail) {
-          val LABEL_PATTERN1(label, s, e) = gpot.name
-          labelIdxs(start)(end) += fg.addVariable("labelvar(%d,%d,%s)".format(start, end, label), arity=2)
-          fg.addUnaryFactor("labelvar(%d,%d,%s)".format(start, end, label), "labelfac(%d,%d,%s)".format(start, end, label), gpot)
-        }
+  def incrementCounts(tree: Tree, counts: HashMap[Rule, Int], backoff: Boolean) = {
+    for (t <- tree.depthFirstSearch if !t.isPreterminal) {
+      val parent = t.label
+      val children = t.children.map(_.label)
+      val rule = Rule(parent, children.toArray)
+      if (counts.contains(rule)) counts(rule) += 1 else counts(rule) = 1
+      if (backoff && children.size == 2) {
+ /*
+        val pbackoff  = new Rule("@", children) //"@ => %s %s".format(children(0), children(1))
+        val lcbackoff = new Rule(parent, "%s => @ %s".format(parent, children(1))
+        val rcbackoff = "%s => %s @".format(parent, children(0))
+        if (counts.contains(pbackoff)) counts(pbackoff) += 1 else counts(pbackoff) = 1
+        if (counts.contains(lcbackoff)) counts(lcbackoff) += 1 else counts(lcbackoff) = 1
+        if (counts.contains(rcbackoff)) counts(rcbackoff) += 1 else counts(rcbackoff) = 1
+        */
       }
     }
-    if (useLabels) {
-      for (width <- 2 to slen; start <- 0 to (slen - width)) {
-        val end = start + width
-        //fg.addIsAtMost1Factor(new Regex("brackvar\\(%d,%d\\)".format(start, end)), new Regex("labelvar\\(%d,%d,.+\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))
-        fg.addIsAtMost1FactorByIndices(brackIdxs(start)(end), labelIdxs(start)(end).toArray, "isAtMost(%d,%d)".format(start, end))
-      }
-    }
- //   fg.addCKYFactor(new Regex("brackvar"), slen=slen)
-//    fg.addCKYFactorByIndices(brackIdxs.toArray, slen=slen)
+  }
 
-
-    val useUnaries = false
-    if (useUnaries) {
-      val ugroups = pots.filter(_.name.contains("unary")).groupBy{p =>
-        val INDICES_PATTERN(start, end) = p.name
-        (start.toInt, end.toInt)
-      }
-      for (start <- 0 until slen) {
-        val end = start + 1
-        val upots = ugroups((start, end))
-        brackIdxs(start)(end) = fg.addVariable("unaryvar(%d,%d)".format(start, end), arity=2)
-        fg.addUnaryFactor("unaryvar(%d,%d)".format(start, end), "unaryfac(%d,%d)".format(start, end), upots(0))
-        if (upots.size > 1) {
-          useLabels = true
-          for (gpot <- upots.tail) {
-            val UNARY_LABEL_PATTERN1(label, s, e) = gpot.name
-            labelIdxs(start)(end) += fg.addVariable("unaryLabelvar(%d,%d,%s)".format(start, end, label), arity=2)
-            fg.addUnaryFactor("unaryLabelvar(%d,%d,%s)".format(start, end, label), "unaryLabelfac(%d,%d,%s)".format(start, end, label), gpot)
+  def addRules(builder: FactorGraphBuilder, grammar: WeightedGrammar, slen: Int) {
+    val minWidth = 2
+    for (i <- 0 to slen; j <- i+minWidth to slen; k <- j+minWidth to slen) {
+      grammar.foreach { case(rule, weight) =>  //for (rule <- grammar) {
+        if (rule.children.size == 2) {
+          val idx = builder.getVariableIndex("hasLabel%s(%d,%d)".format(rule.children(0)))
+          val jdx = builder.getVariableIndex("hasLabel%s(%d,%d)".format(rule.children(1)))
+          val pdx = builder.getVariableIndex("hasLabel%s(%d,%d)".format(rule.parent))
+          if (idx > 0 && jdx > 0 && pdx > 0) {
+            val ruleStr = "Rule(%d,%d,%d,%s,%s,%s)".format(i, j, k, rule.children(0), rule.children(1), rule.parent)
+            builder.addNand3FactorByIndex(idx, jdx, pdx, ruleStr, new Potential(weight, ruleStr, false))
           }
-//          fg.addIsAtMost1Factor(new Regex("unaryvar\\(%d,%d\\)".format(start, end)), new Regex("unaryLabelvar\\(%d,%d,.+\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))
-          fg.addIsAtMost1FactorByIndices(brackIdxs(start)(end), labelIdxs(start)(end).toArray, "isAtMost(%d,%d)".format(start, end))
         }
       }
     }
-    return new ConstituentParserModelInstance(fg.toFactorGraph, ex)
   }
 
-  def decode(instance: ModelInstance) = {
-    val slen    = instance.ex.attributes.getOrElse("slen", "-1").toInt
-    val words   = instance.ex.attributes.getOrElse("words", "").trim.split(" ")
-    val tags    = instance.ex.attributes.getOrElse("tags", "").trim.split(" ")
-    System.err.println("Decoding...\n" + words.mkString(" "))
-    //    println("slen = " + slen)
-    //    println("words size = " + words.size)
-    //    println("tags size = " + tags.size)
-    val beliefs = instance.marginals
-    val spans = new ArrayBuffer[Span]
-
-    val labelGroups = beliefs.filter(_.name.contains("spanLabel")).groupBy{p =>
-      val INDICES_PATTERN(start, end) = p.name
-      (start.toInt, end.toInt)
+  def calculateUpdates(testTree: Tree, trueTree: Tree, grammar: WeightedGrammar,
+                       rate: Double, backoff: Boolean, verbose: Boolean): WeightedGrammar = {
+    // Collect counts
+    val trueCounts = new HashMap[Rule, Int]
+    val testCounts = new HashMap[Rule, Int]
+/*
+    for (i <- 0 until testTrees.size) {
+      incrementCounts(trueTrees(i), trueCounts, backoff)
+      incrementCounts(testTrees(i), testCounts, backoff)
     }
-    if (slen > 2) {
-      val ckybeliefs = ckyBrackets(beliefs.filter(_.name.startsWith("brack(")), slen).groupBy{p =>
-        val INDICES_PATTERN(start, end) = p.name
-        (start.toInt, end.toInt)
-      }
-      for (width <- 2 to slen; start <- 0 to (slen - width)) {
-        val end = start + width
-        if (ckybeliefs((start, end))(0).value > 0.5) {
-          val label = if (labelGroups.contains((start, end))) {
-            maxLabel(labelGroups((start, end)))
+*/
+    incrementCounts(trueTree, trueCounts, backoff)
+    incrementCounts(testTree, testCounts, backoff)
+
+    if (verbose) println("\"x\"")
+    val updatedGrammar = new WeightedGrammar
+    for (rule <- trueCounts.keys) {
+      val weight = grammar.getOrElse(rule, 0.0) + (trueCounts(rule) - testCounts.getOrElse(rule, 0)) * rate
+      updatedGrammar(rule) = weight
+      if (verbose) println("\"%s\" %f".format(rule, weight))
+    }
+    updatedGrammar
+  }
+
+  def readGrammarParams(grammarFile: String): WeightedGrammar = { //HashMap[String, Double] = {
+    val grammar = new WeightedGrammar
+    if (grammarFile != null) {
+      for (line <- io.Source.fromFile(grammarFile).getLines if line != "\"x\"") {
+        line match {
+          case RULE_PATTERN(parent, children, weight) => {
+            grammar(new Rule(parent, children.split(" "))) = weight.toDouble
           }
-          else {
-            "EHH"
-          }
-          spans += new Span(start.toInt, end.toInt, label)
+          case _ => {}
         }
       }
     }
-
-    val unaryGroups = beliefs.filter(_.name.contains("unaryLabel")).groupBy{p =>
-      val INDICES_PATTERN(start, end) = p.name
-      (start.toInt, end.toInt)
-    }
-    System.err.println("UNARY BELIEFS = " + beliefs.filter(_.name.contains("unaryLabel")).size)
-    beliefs.filter(_.name.contains("unary")).foreach( System.err.println(_))
-    beliefs.filter(p => p.name.contains("unary(") && p.value > 0.5).foreach { unary =>
-      val UNARY_PATTERN(start, end) = unary.name
-      spans += new Span(start.toInt, end.toInt, maxLabel(unaryGroups((start.toInt, end.toInt))), height=1)
-    }
-
-    //    System.err.println("SPANS:\n" + spans.mkString("\n"))
-    val tree = TreeFactory.constructFromSpans(spans.toArray.filter(s => !s.label.contains("@") && s.width != slen), slen)
-    tree.annotateWithIndices(0)
-
-    tree.setYield(words, tags)
-    System.out.println(tree.toString() + "\n")
-
-    if (params.OUTPUT_FILE != null) {
-      val out = new FileWriter(params.OUTPUT_FILE, true)
-      out.write(tree.toString + "\n")
-      out.close()
-    }
+    grammar
   }
 
-  def ckyBrackets(pots: Array[Potential], slen: Int): Array[Potential] = {
-    //    System.err.println("%d pots in cky-bracks.".format(pots.size))
-    assert(!pots.exists(!_.name.startsWith("brack")), "There is a potential in ckyBrackets that is not a bracket potential.")
-    val beta  = Array.ofDim[Double](slen+1, slen+1)
-    val split = Array.ofDim[Int](slen+1, slen+1)
-    val brack = Array.ofDim[Boolean](slen+1, slen+1)
-    val scores = pots.map(_.value)
-    //    val sp = scores
-
-    val groups = pots.filter(_.name.contains("brack")).groupBy{p =>
-      val INDICES_PATTERN(start, end) = p.name
-      (start.toInt, end.toInt)
-    }
-    //    System.err.println("GROUPS =\n" + groups.toArray.mkString("\n"))
-
-    for (w <- 2 until slen; i <- 0 to slen-w) {
-      val k = i + w
-      var inside = Double.NegativeInfinity
-      var best = 0
-      for (j <- i+1 until k) {
-        val s = beta(i)(j) + beta(j)(k)
-        if (s > inside) {
-          inside = s
-          best = j
-        }
-      }
-      val sp1 = groups((i, k))(0) //pots.filter(_.name == "brack(%d,%d)".format(i,k))(0)
-      //			println("Brack(%d,%d) = " + sp)
-      beta(i)(k) = inside + sp1.value
-      split(i)(k) = best
-    }
-    var inside = Double.NegativeInfinity
-    var best = 0
-    for (j <- 1 until slen) {
-      val s = beta(0)(j) + beta(j)(slen)
-      if (s > inside) {
-        inside = s
-        best = j
-      }
-    }
-    beta(0)(slen) = inside
-    split(0)(slen) = best
-    ckyBacktrace(0, slen, split, brack)
-    //		var op = out // ???
-    for (w <- 2 until slen; i <- 0 to slen-w) {
-      val k = i + w
-      var sp2 = groups((i, k))(0) //pots.filter(_.name == "brack(%d,%d)".format(i,k))(0)
-      sp2.value = if (brack(i)(k)) 1.0 else 0.0
-      //			op += 1
-    }
-    groups((0, slen))(0).value = 1
-    //    pots.filter(_.name == "brack(%d,%d)".format(0,slen))(0).value = 1
-    //		return beta(0)(slen)
-    return pots
-  }
-
-  def ckyBacktrace(i: Int, k: Int, split: Array[Array[Int]], brack: Array[Array[Boolean]]): Int = {
-    val j = split(i)(k)
-    if (j > (i+1)) {
-      brack(i)(j) = true
-      //			println("backtrace-1(%d,%d)".format(i, j))
-      ckyBacktrace(i, j, split, brack)
-    }
-    if (j < (k-1)) {
-      brack(j)(k) = true
-      //			println("backtrace-2(%d,%d)".format(j, k))
-      ckyBacktrace(j, k, split, brack)
-    }
-    return 1
-  }
-
-  def maxLabel(pots: Array[Potential]): String = {
-    // 		println("label potentials size = %d".format(pots.size) + "\n" + pots.mkString("\n"))
-    var max = pots(0) //Double.NegativeInfinity
-    for (pot <- pots) {
-      if (pot.value > max.value) {
-        max = pot
-      }
-    }
-    //    println("max pot = " + max)
-    if (max.name.contains("unary")) {
-      val UNARY_LABEL_PATTERN1(label, start, end) = max.name
-      return label
-    }
-    else {
-      val LABEL_PATTERN1(label, start, end) = max.name
-      return label
-    }
-  }
-
-
-  def options = params
-}
-
-class ConstituentParserModelInstance(graph: FactorGraph, ex: PotentialExample) extends ModelInstance(graph, ex) with ParserInferenceOrder
-
-
-trait ConstituentParserFeatures {}
-
-
-
-
-trait ParserInferenceOrder extends InferenceOrder {
-
-  override def messageOrder(graph: FactorGraph): Iterator[MessageNode] = {
-    //  System.err.println("Using Parser Inference Order...")
-    //    println(graph.toString)
-
-    /*
-    val idxpattern = new Regex(".*\\(([0-9]+)[^0-9].*")
-    val mqueue = scala.collection.mutable.Queue[MessageNode]()
-    //    graph.nodes.filter(n => n.isFactor && n.arity == 1 && n.name.contains("brack")).foreach(mqueue += _)
-    //    graph.nodes.filter(n => n.isFactor && n.arity == 1 && n.name.contains("label")).foreach(mqueue += _)
-    graph.nodes.filter(n => n.isVariable && n.name.contains("label")).foreach(mqueue += _)
-    graph.nodes.filter(n => n.isFactor && n.arity > 1 && !n.name.contains("CKY")).sortBy(_.arity).foreach(mqueue += _)
-    graph.nodes.filter(n => n.isVariable && n.name.contains("brack")).foreach(mqueue += _)
-    graph.nodes.filter(n => n.isFactor && n.arity > 1 && n.name.contains("CKY"))
-    mqueue.iterator ++ mqueue.reverseIterator
-    */
-
-    val mqueue = new Queue[MessageNode]()
-    val q1 = new Queue[MessageNode]()
-    val q2 = new Queue[MessageNode]()
-    val q3 = new Queue[MessageNode]()
-    val q4 = new Queue[MessageNode]()
-    for (n <- graph.nodes) {
-      if (n.name.startsWith("CKY")) {
-        q4 += n
-      }
-      if (n.isFactor && n.arity > 1 && !n.name.contains("CKY")) {
-        q2 += n
-      }
-      if (n.isVariable) {
-        if (n.name.contains("Label")) {
-          q1 += n
-        }
-        else {
-          q3 += n // brack variables
-        }
-      }
-    }
-
-    mqueue ++= q1
-    mqueue ++= q2
-    mqueue ++= q3
-    mqueue ++= q4
-    mqueue.iterator ++ mqueue.reverseIterator
+  def writeGrammar(grammar: WeightedGrammar, filename: String) {
+   val out = new FileWriter(filename)
+   for (k <- grammar.keys) {
+     out.write(k + "\t" + grammar(k))
+   }
+   out.close
   }
 }
 
@@ -364,50 +172,66 @@ trait ParserInferenceOrder extends InferenceOrder {
 
 
 
-
-    /*
-    //    graph.nodes.filter(n => n.isFactor && n.arity == 1 && n.name.contains("brack")).foreach(mqueue += _)
-    //    graph.nodes.filter(n => n.isFactor && n.arity == 1 && n.name.contains("label")).foreach(mqueue += _)
-    graph.nodes.filter(n => n.isVariable && n.name.contains("label")).foreach(mqueue += _)
-    graph.nodes.filter(n => n.isFactor && n.arity > 1 && !n.name.contains("CKY")).sortBy(_.arity).foreach(mqueue += _)
-    graph.nodes.filter(n => n.isVariable && n.name.contains("brack")).foreach(mqueue += _)
-    graph.nodes.filter(n => n.isFactor && n.arity > 1 && n.name.contains("CKY"))
-    mqueue.iterator ++ mqueue.reverseIterator
-   */
-
-
-
-
-
+/*
+      val trees = util.iterator.toArray
+      val btrees = trees.map(_.binarize.removeUnaryChains())
+      trees.foreach(_.annotateWithIndices(0))
+      btrees.foreach(_.annotateWithIndices(0))
+      val blabels = btrees.map(_.nonterminals.map(_.label).toArray).flatten.distinct.sortBy(_.toString)
+      val ulabels = trees.map(_.nonterminals.map(_.label).toArray).flatten.distinct.sortBy(_.toString)     // ***FIX THIS LINE
+      //      val ulabels = trees.map(_.map(_.label()).toArray).toArray.flatten.distinct.sortBy(_.toString)
+      //      val blabels  = btrees.map(_.map(_.label()).toArray).toArray.flatten.distinct.sortBy(_.toString)
+      System.err.println("Using labels:\n%s".format(blabels.mkString("\n")))
+      parser.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, blabels, ulabels, params)
+      parser.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, blabels, ulabels, params)
+*/
 
 
 
-    // cky
-    // isatmost
-    //
-    /*
-    graph.nodes.filter(_.name.contains("labelvar")).foreach(mqueue += _)
-    graph.nodes.filter(_.name.contains("labelvar")).foreach(mqueue += _)
 
-    val groups = graph.nodes.groupBy{node =>
-      val idxpattern(idx) = node.name
-      idx
-    }
-    val slen = groups.size
+/*
+ //    graph.nodes.filter(n => n.isFactor && n.arity == 1 && n.name.contains("brack")).foreach(mqueue += _)
+ //    graph.nodes.filter(n => n.isFactor && n.arity == 1 && n.name.contains("label")).foreach(mqueue += _)
+ graph.nodes.filter(n => n.isVariable && n.name.contains("label")).foreach(mqueue += _)
+ graph.nodes.filter(n => n.isFactor && n.arity > 1 && !n.name.contains("CKY")).sortBy(_.arity).foreach(mqueue += _)
+ graph.nodes.filter(n => n.isVariable && n.name.contains("brack")).foreach(mqueue += _)
+ graph.nodes.filter(n => n.isFactor && n.arity > 1 && n.name.contains("CKY"))
+ mqueue.iterator ++ mqueue.reverseIterator
+*/
 
-    //   val bigram = graph.factors.exists(_.name.contains("blabel"))
-    for (i <- 1 to slen) {
-      val inodes = groups(i.toString)
-      inodes.foreach{n => if (n.isFactor && n.arity == 1) mqueue += n}
-    }
-    for (i <- 1 to slen) {
-      val inodes = groups(i.toString)
-      println("TEST: " + i + " = " + inodes.mkString)
-      inodes.foreach{n => if (n.isVariable)  mqueue += n}
-      inodes.foreach{n => if (n.isFactor && n.arity > 1) mqueue += n}
-    }
-    */
-    //(mqueue ++ mqueue.reverse).iterator
+
+
+
+
+
+
+
+// cky
+// isatmost
+//
+/*
+graph.nodes.filter(_.name.contains("labelvar")).foreach(mqueue += _)
+graph.nodes.filter(_.name.contains("labelvar")).foreach(mqueue += _)
+
+val groups = graph.nodes.groupBy{node =>
+  val idxpattern(idx) = node.name
+  idx
+}
+val slen = groups.size
+
+//   val bigram = graph.factors.exists(_.name.contains("blabel"))
+for (i <- 1 to slen) {
+  val inodes = groups(i.toString)
+  inodes.foreach{n => if (n.isFactor && n.arity == 1) mqueue += n}
+}
+for (i <- 1 to slen) {
+  val inodes = groups(i.toString)
+  println("TEST: " + i + " = " + inodes.mkString)
+  inodes.foreach{n => if (n.isVariable)  mqueue += n}
+  inodes.foreach{n => if (n.isFactor && n.arity > 1) mqueue += n}
+}
+*/
+//(mqueue ++ mqueue.reverse).iterator
 
 
 
