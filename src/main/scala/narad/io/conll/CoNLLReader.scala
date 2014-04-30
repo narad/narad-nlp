@@ -23,10 +23,18 @@ object CoNLLReader {
     val mode = options.getString("--mode")
     System.err.println(conllfile)
     val reader = new CoNLLReader(conllfile)
-    for (datum <- reader; i <- 1 to datum.slen) { System.out.println(extract(datum, i, mode)); if (i == datum.slen) println() }
+    for (datum <- reader; i <- 1 to datum.slen) {
+      System.out.println(extract(datum, i, mode))
+      if (i == datum.slen) println()
+    }
   }
 
   def extract(datum: CoNLLDatum, i: Int, mode: String): String = {
+    datum.attribute(i, mode)
+  }
+}
+
+  /*
     mode match {
       case "COARSE" => datum.cpostag(i)
       case "FINE"   => datum.postag(i)
@@ -39,7 +47,7 @@ object CoNLLReader {
   }
 }
 
-
+                       */
 
 
 

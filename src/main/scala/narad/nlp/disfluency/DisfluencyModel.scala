@@ -138,7 +138,7 @@ class DisfluencyModel(params: DisfluencyParams) extends FactorGraphModel[Disflue
       for (width <- 2 to slen; start <- 0 to (slen - width)) {
         val end = start + width
         //fg.addIsAtMost1Factor(new Regex("brackvar\\(%d,%d\\)".format(start, end)), new Regex("labelvar\\(%d,%d,.+\\)".format(start, end)), "isAtMost(%d,%d)".format(start, end))
-        fg.addIsAtMost1FactorByIndices(brackIdxs(start)(end), labelIdxs(start)(end).toArray, "isAtMost(%d,%d)".format(start, end))
+        fg.addIsAtMost1FactorByIndex(brackIdxs(start)(end), labelIdxs(start)(end).toArray, "isAtMost(%d,%d)".format(start, end))
       }
     }
     fg.addCKYFactor(new Regex("brackvar"), slen=slen)

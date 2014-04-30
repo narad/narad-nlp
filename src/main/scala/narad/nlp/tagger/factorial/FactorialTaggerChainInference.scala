@@ -1,4 +1,4 @@
-package narad.nlp.tagger
+package narad.nlp.tagger.factorial
 
 import narad.bp.inference.InferenceOrder
 import narad.bp.structure.{MessageNode, FactorGraph}

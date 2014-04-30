@@ -7,6 +7,7 @@ import narad.bp.util.index.Index
 import narad.io.conll._
 import java.io._
 
+/*
 class BigramTaggerModel(params: TaggerParams) extends TaggerModel(params) with BigramTaggerFeatures
 
 trait BigramTaggerFeatures extends TaggerFeatures {
@@ -59,6 +60,6 @@ trait BigramTaggerFeatures extends TaggerFeatures {
 	}
 }
 
-
+                    */
 
 //						dict.tags.getOrElse(prevword, alltags).zipWithIndex.foreach { case(btag, btidx) =>

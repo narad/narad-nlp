@@ -9,6 +9,7 @@ import scala.collection.mutable.{HashMap, HashSet}
 import narad.util.StringOps
 import narad.bp.optimize.EvalContainer
 import javax.management.remote.rmi._RMIConnection_Stub
+import narad.io.ner.F1Container
 
 object EvalBContainer {
   val NON_WORDS = Array(".", ",")
@@ -65,22 +66,26 @@ object EvalBContainer {
     if (ccount == 0) e.increment("no crosses")
     if (ccount <= 2) e.increment("<=2 crosses")
 
-
     for (label <- labels) {
       e("gold %s comps".format(label)) = goldSpans.filter(_.label == label).size
       e("test %s comps".format(label)) = testSpans.filter(_.label == label).size
     }
 
+    val uTestSpans = testSpans.filter(_.isUnary)
+    val uGoldSpans = goldSpans.filter(_.isUnary)
+    e("unary correct") = uTestSpans.filter(t => uGoldSpans.exists(_.equals(t))).size
+    e("test unaries") = uTestSpans.size
+    e("gold unaries") = uGoldSpans.size
 
-    val up  = e.count("unlabeled correct") / e.count("test comps")
-    val ur  = e.count("unlabeled correct") / e.count("gold comps")
+    val up  = if (e.count("test comps") == 0) 0 else e.count("unlabeled correct") / e.count("test comps")
+    val ur  = if (e.count("gold comps") == 0) 0 else e.count("unlabeled correct") / e.count("gold comps")
     val uf1 = if ((up + ur) == 0) 0 else 2 * ((up * ur) / (up + ur))
     e("up") = up
     e("ur") = ur
     e("uf1") = uf1
 
-    val lp  = e.count("labeled correct") / e.count("test comps")
-    val lr  = e.count("labeled correct") / e.count("gold comps")
+    val lp  = if (e.count("test comps") == 0) 0 else e.count("labeled correct") / e.count("test comps")
+    val lr  = if (e.count("gold comps") == 0) 0 else e.count("labeled correct") / e.count("gold comps")
     val lf1 = if ((lp + lr) == 0) 0 else 2 * ((lp * lr) / (lp + lr))
     e("lp") = lp
     e("lr") = lr
@@ -91,9 +96,19 @@ object EvalBContainer {
 }
 
 
-class EvalBContainer extends HashCounter[String] with EvalContainer {
+class EvalBContainer extends F1Container {
+//HashCounter[String] with EvalContainer {
 
-  def combine(that: EvalContainer): EvalBContainer = {
+  override def combine(that: EvalContainer): EvalBContainer = {
+    val f1 = new EvalBContainer
+//    println("in evalb combine")
+    super.combine(that).foreach(f1 += _)
+//    println("combined keys = " + super.combine(that).mkString("\n"))
+    f1
+//    super.combine(that).asInstanceOf[EvalBContainer]
+  }
+
+  /*
 //    println("COMBINING")
     that match {
       case x: EvalBContainer => {
@@ -111,12 +126,16 @@ class EvalBContainer extends HashCounter[String] with EvalContainer {
       }
     }
   }
+  */
 
   override def toString = {
     val lp  = count("labeled correct") / count("test comps")
     val lr  = count("labeled correct") / count("gold comps")
     val lf1 = if ((lp + lr) == 0) 0 else 2 * ((lp * lr) / (lp + lr))
-    "(P=%f/R=%f) = %f".format(lp, lr, lf1) //lf1.toString
+    val ulp = count("unary correct") / count("test unaries")
+    val ulr = count("unary correct") / count("gold unaries")
+    val ulf1 = if ((ulp + ulr) == 0) 0 else 2 * ((ulp * ulr) / (ulp + ulr))
+    "(P=%f/R=%f) = %f\n(UP=%f/UR=%f) = %f".format(lp, lr, lf1, ulp, ulr, ulf1) //lf1.toString
     //"%f\t%f\t%f".format(count("labeled correct"), count("gold comps"), count("test comps"))
   }
 }
@@ -226,6 +245,14 @@ object Evalb {
     if (verbose) {
       val maxLen = 60
       println("Additional Statistics:")
+      println("======================")
+      println("Unary Prediction Statistics:")
+      val ulp = stats.count("unary correct") / stats.count("test unaries")
+      val ulr = stats.count("unary correct") / stats.count("gold unaries")
+      val ulf1 = if ((ulp + ulr) == 0) 0 else 2 * ((ulp * ulr) / (ulp + ulr))
+      println("Unary Precision = %1.2f".format(ulp))
+      println("Unary Recall = %1.2f".format(ulr))
+      println("Unary F1 = %1.2f".format(ulf1))
       println("======================")
       println("Correctly Predicted and Labeled Spans at Widths:")
       for (i <- 2 to maxLen) {

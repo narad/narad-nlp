@@ -1,6 +1,10 @@
 package narad.nlp.disfluency
 
-import narad.bp.optimize.{Optimizer} // L2Regularizer
+import narad.bp.optimize.{Optimizer}
+import narad.io.tree.TreebankReaderOptions
+import narad.util.ArgParser
+
+// L2Regularizer
 import narad.bp.util.{PotentialExample, PotentialReader}
 import narad.bp.util.index._
 import narad.nlp.parser.constituent._
@@ -33,7 +37,8 @@ object Disfluency {
 //      val labels = util.iterator.toArray.map(_._2.binarize().nonterminals.map(_.label).toArray).flatten.distinct.sortBy(_.toString)
       val index = if (params.HASH_DICT) new HashIndex(params.PV_SIZE) else new ArrayIndex[String]()
       val trees = reader.iterator.map(_._2)
-      val tstats = TreebankStatistics.construct(trees, prune=params.PRUNE)
+      val treeOptions = TreebankReaderOptions.fromCommandLine(new ArgParser(Array[String]()))  // FIX THIS PROPER
+      val tstats = TreebankStatistics.construct(trees, treeOptions)
       tstats.bin(numBins = 5, binSize=10)
       tstats.writeToFile("prune_stats.txt")
       dis.extractFeatures(params.TRAIN_DISFLUENCY_FILE, params.TRAIN_SYNTAX_FILE,

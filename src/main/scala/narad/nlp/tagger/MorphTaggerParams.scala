@@ -1,6 +1,7 @@
 package narad.nlp.tagger
 
 import collection.mutable.ArrayBuffer
+import narad.nlp.tagger.factorial._
 
 /**
  * Created with IntelliJ IDEA.
@@ -22,6 +23,7 @@ class MorphTaggerParams(args: Array[String]) extends FactorialTaggerParams(args)
   def ATTRIBUTES = {
     val ab = new ArrayBuffer[String]()
     if (POS) ab += "FINE"
+    if (COARSE_POS) ab += "COARSE"
     if (CASE) ab += "CASE"
     if (PERSON) ab += "PERSON"
     if (GENDER) ab += "GENDER"
@@ -34,6 +36,8 @@ class MorphTaggerParams(args: Array[String]) extends FactorialTaggerParams(args)
   def OBSERVE_BIGRAM = getBoolean("--observe.bigram", false)
   def SPARSE = getBoolean("--sparse", false)
   def INTEGERIZE = getBoolean("--integerize")
+
+  override def MARGINALIZATION = HIDDEN_SYNTAX
 }
 
 trait MorphFeatures extends TaggerFeatures {}

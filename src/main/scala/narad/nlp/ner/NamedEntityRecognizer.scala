@@ -29,11 +29,27 @@ object NamedEntityRecognizer {
       System.err.println("Extracting features...")
       val index = if (params.HASH_DICT) new HashIndex(params.PV_SIZE) else new ArrayIndex[String]()
       val reader = new OntoReader(params.TRAIN_NER_FILE, params.TRAIN_SYNTAX_FILE)
-      val stats = TreebankStatistics.construct(reader.map(_.tree).iterator, params.PRUNE)
-      val labels = reader.foldLeft(new HashSet[String])(_ ++ _.ner.labels.toSet)
-      ner.extractFeatures(params.TRAIN_NER_FILE, params.TRAIN_SYNTAX_FILE, params.TRAIN_FEATURE_FILE, index, labels.toArray, stats, params)
-      ner.extractFeatures(params.TEST_NER_FILE, params.TEST_SYNTAX_FILE, params.TEST_FEATURE_FILE, index, labels.toArray, stats, params)
-      if (!params.HASH_DICT) index.writeToFile("feats.index")
+      val ostats = OntoStatistics.construct(reader)
+      val treeOptions = TreebankReaderOptions.fromCommandLine(new ArgParser(args))
+      val stats = TreebankStatistics.construct(reader.map(_.tree).iterator, treeOptions)
+//      val nstats = NamedEntityStatistics.construct(reader.)
+      val labels = reader.foldLeft(new HashSet[String])(_ ++ _.ner.labels.toSet).toArray.sortBy(_.toString)
+      if (params.HASH_DICT) {
+        val index = new HashIndex(params.PV_SIZE)
+        ner.extractFeatures(new OntoReader(params.TRAIN_NER_FILE, params.TRAIN_SYNTAX_FILE, new OntoReaderOptions(args)),
+                                           params.TRAIN_FEATURE_FILE, index, labels, stats, ostats, params)
+        ner.extractFeatures(new OntoReader(params.TEST_NER_FILE, params.TEST_SYNTAX_FILE, new OntoReaderOptions(args)),
+                                           params.TEST_FEATURE_FILE, index, labels, stats, ostats, params)
+      }
+      else {
+        val index = new ArrayIndex[String]()
+        ner.extractFeatures(new OntoReader(params.TRAIN_NER_FILE, params.TRAIN_SYNTAX_FILE, new OntoReaderOptions(args)),
+                                           params.TRAIN_FEATURE_FILE, index, labels, stats, ostats, params)
+        index.freeze
+        ner.extractFeatures(new OntoReader(params.TEST_NER_FILE, params.TEST_SYNTAX_FILE, new OntoReaderOptions(args)),
+                                           params.TEST_FEATURE_FILE, index, labels, stats, ostats, params)
+        index.writeToFile("feats.index")
+      }
     }
     if (params.TRAIN) {
       val optimizer = new Optimizer(ner, params)
@@ -47,6 +63,38 @@ object NamedEntityRecognizer {
     }
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /*
     val params = new ConstituentParserParams(args)

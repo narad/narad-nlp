@@ -4,7 +4,7 @@ import java.io.FileWriter
 import narad.io.tree.TreebankReader
 import narad.nlp.trees.{ConstituentTree => Tree}
 import collection.mutable.{HashMap, ArrayBuffer, Map}
-import narad.bp.util.{GZipWriter, Feature, PotentialExample}
+import narad.bp.util.{GZipWriter, Feature, StringFeature, PotentialExample}
 import narad.bp.structure.Potential
 import narad.bp.util.index._
 import narad.io.tree.OntoNotesTreebankReaderOptions
@@ -47,15 +47,20 @@ trait ConstituentLabelFeatures extends ConstituentBracketFeatures {
 
 
   def getAllFeatures(tree: Tree, stats: TreebankStatistics, index: Index[String], params: ConstituentParserParams): PotentialExample = {
-    val btree = tree.removeUnaryChains.binarize()
+    val btree = if (params.BINARIZE_MODE == "MARG") {
+      tree.removeNones().removeUnaryChains()
+    }
+    else {
+      tree.removeNones().removeUnaryChains().binarize(params.BINARIZE_MODE)
+    }
     val ex = new PotentialExample
-    val attributes  = Map[String, String]()
     ex.attributes("slen") = tree.length.toString
     ex.attributes("words") = tree.words.mkString(" ")
     ex.attributes("tags") = tree.tags.mkString(" ")
     ex.attributes("tree") = tree.toString()
     ex.attributes("btree") = btree.toString()
     ex.attributes("spans") = btree.toSpans.mkString(" ")
+    ex.attributes("labels") = stats.tagset.toArray.mkString(" ") //btree.toSpans.map(_.label).toArray.distinct.sortBy(_.toString).mkString(" ")
     val f1 = getBracketFeatures(btree, index, params)
     val f2 = getLabelFeatures(btree, stats, index, params)
     val f3 = getUnaryFeatures(tree, stats, index, params)
@@ -74,23 +79,36 @@ trait ConstituentLabelFeatures extends ConstituentBracketFeatures {
 
     val LABEL_NAME = params.BRACK_LABEL_NAME
     val tagset = stats.tagset.toArray
-    println("TTAGSET = " + tagset.mkString(" "))
+ //   println("TTAGSET = " + tagset.mkString(" "))
     val slen = tree.length
     val tokens = tree.tokens.toArray
     for ( width <- 2 to slen; start <- 0 to (slen - width)) {
-      val labels = stats.constituentLabelsOfSize(width)
+      val labels = if (params.PRUNE) stats.constituentLabelsOfSize(width) else stats.constituentLabels
+//      println(tree.toString)
+//      println("labels = " + labels.mkString(", "))
+//      println
       val end = start + width
       val feats = constituentSpanFeatures(tokens, start, end, params, tagset)
       for (label <- labels) {
+ //       println(" checking label %s for %d, %d".format(label, start, end))
         val isCorrect = tree.containsSpan(start, end, label)
         val potname = "%s%s(%d,%d)".format(LABEL_NAME, label, start, end)
         ex.potentials += new Potential(1.0, potname, isCorrect)
-        ex.features(potname) = feats.map(f => new Feature(index.index(label + "_" + f), 1.0, 0))
-        // out.write("%s%s(%d,%d)\t%s%s\n".format(LABEL_NAME, label, start, end, if (isCorrect) "+" else "", builder.toString.trim))
+        ex.features(potname) = feats.map{f =>
+          if (params.INTEGERIZE) {
+            new Feature(index.index(label + "_" + f), 1.0, 0)
+          }
+          else {
+            new StringFeature(label + "_" + f, index.index(label + "_" + f), 1.0, 0)
+          }
+        }
       }
     }
-    ex //new PotentialExample(attributes, potentials, featureMap)
+    ex
   }
+
+  //new PotentialExample(attributes, potentials, featureMap)
+  // out.write("%s%s(%d,%d)\t%s%s\n".format(LABEL_NAME, label, start, end, if (isCorrect) "+" else "", builder.toString.trim))
 
 
 
@@ -109,13 +127,26 @@ trait ConstituentLabelFeatures extends ConstituentBracketFeatures {
       val hasUnary = tree.containsUnarySpan(idx, idx+1)
       val potname = "%s(%d,%d)".format(UNARY_NAME, idx, idx+1)
       ex.potentials += new Potential(1.0, potname, hasUnary)
-      ex.features(potname) = features.map(f => new Feature(f.size, 1.0, 0))
-
+      ex.features(potname) = features.map { f =>
+        if (params.INTEGERIZE) {
+          new Feature(index.index(f), 1.0, 0)
+        }
+        else {
+          new StringFeature(f, index.index(f), 1.0, 0)
+        }
+      }
       for (ulabel <- 0 until labels.size) {
-        val correctLabel = tree.containsUnarySpan(idx, idx+1, labels(ulabel))
+        val correctLabel = tree.highestUnarySpan(idx, idx+1) == labels(ulabel) //containsUnarySpan(idx, idx+1, labels(ulabel), 1)
         val ulpotname = "%s%s(%d,%d)".format(UNARY_LABEL_NAME, labels(ulabel), idx, idx+1)
         ex.potentials += new Potential(1.0, ulpotname, correctLabel)
-        ex.features(ulpotname) = features.map(f => new Feature(index.index(labels(ulabel) + "_" + f), 1.0, 0))
+        ex.features(ulpotname) = features.map { f =>
+          if (params.INTEGERIZE) {
+            new Feature(index.index(labels(ulabel) + "_" + f), 1.0, 0)
+          }
+          else {
+            new StringFeature(labels(ulabel) + "_" + f, index.index(labels(ulabel) + "_" + f), 1.0, 0)
+          }
+        }
       }
     }
     ex // new PotentialExample(attributes, potentials, featureMap)

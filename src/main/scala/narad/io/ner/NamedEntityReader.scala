@@ -5,9 +5,9 @@ import scala.collection.mutable.{ArrayBuffer, HashMap}
 import scala.util.matching.Regex
 
 class NamedEntityReader(filename: String, coarsen: Boolean = true) extends Iterable[NamedEntityDatum] {
-	val ontoSingle = new Regex("""<ENAMEX_TYPE=\"(.*?)\">([^<>]+)</ENAMEX>""")
-	val ontoStart  = new Regex("""<ENAMEX_TYPE=\"(.*?)\">([^<]+)""")
-	val ontoEnd    = new Regex("""([^<>]+)</ENAMEX>""")
+	val ONTO_SINGLE = new Regex("""<ENAMEX_TYPE=\"(.*?)\">([^<>]+)</ENAMEX>""")
+	val ONTO_START  = new Regex("""<ENAMEX_TYPE=\"(.*?)\">([^<]+)""")
+	val ONTO_END    = new Regex("""([^<>]+)</ENAMEX>""")
 	val labelmap   = constructLabelMap
 	val normalmap  = constructNormalMap
 	
@@ -16,15 +16,17 @@ class NamedEntityReader(filename: String, coarsen: Boolean = true) extends Itera
 		map += "PER" -> "PERSON"
 		map
 	}
-	
+
+  // Finkel collapses all non PER, ORG, GPEs into MISC
 	def constructLabelMap: HashMap[String, String] = {
 		val map = new HashMap[String, String]
-		map += "PERSON" -> "PERSON"
-		map += "NORP" -> "ORG"
-		map += "FAC" -> "LOC"
-		map += "ORG" -> "ORG"
-		map += "GPE" -> "LOC"
-		map += "LOC" -> "LOC"
+    map += "PER" -> "PERSON"
+    map += "PERSON" -> "PERSON"
+    map += "GPE" -> "GPE"
+    map += "ORG" -> "ORG"
+    map += "NORP" -> "MISC"
+		map += "FAC" -> "MISC"
+		map += "LOC" -> "MISC"
 		map += "MISC" -> "MISC"
 		map += "PRODUCT" -> "MISC"
 		map += "EVENT" -> "MISC"
@@ -53,20 +55,23 @@ class NamedEntityReader(filename: String, coarsen: Boolean = true) extends Itera
 		val entities = new ArrayBuffer[NamedEntity]
 		var count = 0
 		var label = null.asInstanceOf[String]
-		var words = line.replaceAll("ENAMEX TYPE", "ENAMEX_TYPE").split(" ")
-		var tokens = new ArrayBuffer[String]		
-		words.zipWithIndex.foreach { case(token, index) =>
+		val words = removeDummyWords(line).replaceAll("ENAMEX TYPE", "ENAMEX_TYPE").split(" ")
+		var tokens = new ArrayBuffer[String]
+//    println("line: " + line)
+//    println("words: " + words.mkString(" "))
+    words.zipWithIndex.foreach { case(token, index) =>
 			token match {
-				case ontoSingle(entityLabel, entityString) => {
-					entities += new NamedEntity(Array(entityString), refine(entityLabel, coarsen), count, index, index+1)						
+				case ONTO_SINGLE(entityLabel, entityString) => {
+          //tokens += entityString
+					entities += new NamedEntity(refine(entityLabel, coarsen), count, index, index+1, tokens = Array(entityString))
 				}
-				case ontoStart(entityLabel, entityString) => {
+				case ONTO_START(entityLabel, entityString) => {
 					tokens += entityString
 					label = refine(entityLabel, coarsen)
 				}
-				case ontoEnd(entityString) => {
+				case ONTO_END(entityString) => {
 					tokens += entityString
-					entities += new NamedEntity(tokens.toArray, refine(label, coarsen), count, index+1-tokens.size, index+1)
+					entities += new NamedEntity(refine(label, coarsen), count, index+1-tokens.size, index+1, tokens = tokens.toArray)
 					tokens.clear()
 				}
 				case default => {
@@ -75,10 +80,27 @@ class NamedEntityReader(filename: String, coarsen: Boolean = true) extends Itera
 			}
 			count += 1
 		}
-//		System.err.println("# entities = " + entities.size)
-		new NamedEntityDatum(words, entities.toArray)
+//    println(entities.toArray.mkString("\n"))
+		new NamedEntityDatum(removeNERAnnotation(words.mkString(" ")).split(" "), entities.toArray)
 	}
-	
+
+  def removeDummyWords(str: String): String = {
+    var s = str
+    s = s.replaceAll("-LRB-", "")
+    s = s.replaceAll("-LCB-", "")
+    s = s.replaceAll("-RRB-", "")
+    s = s.replaceAll("-RCB-", "")
+    s = s.replaceAll(" +", " ")
+    s.trim
+  }
+
+  def removeNERAnnotation(str: String): String = {
+    var s = str
+    s = s.replaceAll("""<ENAMEX_TYPE=\"(.*?)\">""", "")
+    s = s.replaceAll("""</ENAMEX>""", "")
+    s
+  }
+
 	def refine(label: String, coarsen: Boolean): String = {
 		val rlabel = normalmap.getOrElse(label, label)
 		assert(labelmap.contains(rlabel), "Label %s not found in NER label map.".format(rlabel))

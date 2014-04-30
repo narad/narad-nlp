@@ -81,6 +81,13 @@
       <systemPath>${project.basedir}/lib/stanford-postagger.jar</systemPath>
      </dependency>
 
+		<dependency>
+			<groupId>com.google.protobuf</groupId>
+			<artifactId>protobuf-java</artifactId>
+			<version>2.3.0</version>
+		</dependency>
+
+
      <dependency>
      	<groupId>narad-bp</groupId>
       <artifactId>narad-bp</artifactId>

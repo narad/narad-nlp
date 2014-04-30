@@ -42,7 +42,7 @@ object SpanReader {
 					case _=>
 				}
 			}
-			val tree = TreeFactory.constructFromSpans(spans.toArray, slen)
+			val tree = ConstituentTreeFactory.constructFromSpans(spans.toArray, slen)
 //			tree.setYield(words, tags)
 			trees += tree
 			

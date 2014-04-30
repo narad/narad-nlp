@@ -2,6 +2,7 @@ package narad.structure.tree
 
 import collection.mutable.ArrayBuffer
 import narad.nlp.trees.Span
+import javax.management.remote.rmi._RMIConnection_Stub
 
 /**
  * Created with IntelliJ IDEA.
@@ -53,10 +54,27 @@ class SpanIndexedTree[+T](node: T, children : List[Tree[T]] = List()) extends Tr
     spans(i)(j).exists(s => s.isUnary && s.label == l)
   }
 
+  def containsUnarySpan(i: Int, j: Int, l: String, h: Int): Boolean = {
+    if (i < 0 || j < 0) return false
+    if (i > length || j > length) return false
+    spans(i)(j).exists(s => s.isUnary && s.label == l && s.height == h)
+  }
+
   def containsLabel(i: Int, j: Int, l: String): Boolean = {
     if (i < 0 || j < 0) return false
     if (i > length || j > length) return false
     spans(i)(j).exists(s => s.label == l)
+  }
+
+  def highestUnarySpan(i: Int, j: Int): String = {
+    if (i < 0 || j < 0) return "none"
+    if (i > length || j > length) return "none"
+    if (spans(i)(j).filter(_.isUnary).size > 0) {
+      spans(i)(j).filter(_.isUnary).sortBy(_.height * -1).head.label
+    }
+    else {
+      "none"
+    }
   }
 
   def toSpans: Iterable[Span] = {

@@ -22,6 +22,6 @@ case class SRLArg(aidx: Int, word: String, label: String) {
   override def toString = "%d-%s".format(aidx, label)
 }
 
-case class SRLToken(word: String, lemma: String, pos: String, cpos: String, morph: String = "") {
+case class SRLToken(word: String, lemma: String, pos: String, morph: String = "") {
   override def toString = "(%s %s)".format(pos, word)
 }

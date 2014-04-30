@@ -10,7 +10,9 @@ class TaggerParams(args: Array[String]) extends ArgParser(args) with ModelOption
 	def MODE = getString("--mode", "FINE")
   def COARSE_TO_FINE = getBoolean("--coarse.to.fine", false)
   def ORDER = getInt("--order", 1)
-
+  def CONCURRENCY = getString("--concurrency", "SERIAL")
+  def MARGINALIZATION = getBoolean("--marg", false)
+  def NUM_CORES = getInt("--num.cores", 1)
 	def PRINT_INTERVAL = getInt("--print.interval", 100)
 	def TRAIN_FIDX_FILE = getString("--train.fidx.file", "train.fidx")
 	def TEST_FIDX_FILE  = getString("--test.fidx.file", "test.fidx")
@@ -28,8 +30,11 @@ class TaggerParams(args: Array[String]) extends ArgParser(args) with ModelOption
 
 
 	def VARIANCE = getDouble("--variance", 1.0)
-	def RATE = getDouble("--rate", .01)
+	def RATE = getDouble("--rate", 0.01)
+  def DECAY = getDouble("--decay", 0.01)
 	def PV_SIZE = getInt("--pv.size", -1)
+  def PV_SET = getDouble("--pv.set", 0.0)
+  def PV_SET_RANGE = getRange("--pv.set.range", (0,0))
 	def TRAIN_ITERATIONS = getInt("--train.iterations", 10)
   def TRAIN_ITERATIONS_OFFSET = getInt("--train.iterations.offset", 0)
   def TRAIN_ORDER = getString("--train.order", "NORMAL")

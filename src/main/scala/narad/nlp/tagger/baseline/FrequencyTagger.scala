@@ -1,4 +1,5 @@
-package narad.nlp.tagger
+package narad.nlp.tagger.baseline
+
 import narad.io.conll.CoNLLReader
 import narad.util.{ArgParser, HashCounter}
 import narad.stats.ConditionalProbabilityTable
@@ -25,8 +26,8 @@ object FrequencyTagger {
 		for (datum <- trainReader) {
       for (attr <- attributes) {
         for (i <- 1 to datum.slen) {
-          cpts(attr).increment(datum.word(i).toLowerCase.trim, datum.getAttribute(i, attr).trim)
-          tcounts(attr).increment(datum.getAttribute(i, attr))
+          cpts(attr).increment(datum.word(i).toLowerCase.trim, datum.attribute(i, attr).trim)
+          tcounts(attr).increment(datum.attribute(i, attr))
         }
       }
 /*

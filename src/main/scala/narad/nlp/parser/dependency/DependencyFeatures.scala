@@ -4,36 +4,37 @@ import scala.collection.mutable.ArrayBuffer
 import narad.io.conll._
 import java.io.FileWriter
 import narad.nlp.ling.Word
-import narad.bp.util.StringFeature
+import narad.bp.util.{GZipWriter, StringFeature}
 
 trait DependencyParseFeatures {
 	
 //	def extract(otokens: Array[RToken], ohead: Int, odep: Int): Array[String] = {
 
-  def extractFeatures(inputFile: String, outputFile: String, params: DependencyParserParams) {
-    val out = new FileWriter(outputFile)
+  def extractParseFeatures(inputFile: String, outputFile: String, params: DependencyParserParams) {
+    val out = new GZipWriter(outputFile + ".gz")
     val reader = new CoNLLReader(inputFile)
-      for (datum <- reader) {
-        val slen = datum.slen
-        out.write("@slen\t%d".format(slen))
-        for (i <- 0 to slen; j <- 0 until slen if i != j) {
-          val correct = if (datum.head(j) == i) "+" else ""
-          val feats = dependencyFeatures(datum, i, j)
-          out.write("un(%d,%d)\t%s%s\n".format(i, j, correct, feats.mkString(" ")))
-        }
+    for (datum <- reader) {
+      val slen = datum.slen
+      out.write("@slen\t%d\n".format(slen))
+      for (i <- 0 to slen; j <- 1 to slen if i != j) {
+        val correct = if (datum.head(j) == i) "+" else ""
+        val feats = dependencyFeatures(datum, i, j)
+        out.write("un(%d,%d)\t%s%s\n".format(i, j, correct, feats.mkString(" ")))
       }
+      out.write("\n")
+    }
+    out.close
   }
 
-	case class DependencyToken(word: String, lemma: String, pos: String, cpos: String)
+  case class DependencyToken(word: String, lemma: String, pos: String)
 
-	def dependencyFeatures(datum: CoNLLDatum, ohead: Int, odep: Int): Array[String] = {
-//		System.err.println("Conll size = " + datum.slen + "vs ohead " + ohead + "; vs odep of " + odep)
-		val otokens = (1 to datum.slen).map(i => new DependencyToken(datum.word(i), datum.lemma(i), datum.postag(i), datum.cpostag(i)))
+  def dependencyFeatures(datum: CoNLLDatum, ohead: Int, odep: Int): Array[String] = {
+		val otokens = (1 to datum.slen).map(i => new DependencyToken(datum.word(i), datum.lemma(i), datum.postag(i)))
 		val feats = new ArrayBuffer[String]
 		
-		val stoken = new DependencyToken("LEFFT_W", "LEFT_LEMMA", "LEFT_POS", "LEFT_CPOS")
-		val etoken = new DependencyToken("RIGHT_W", "RIGHT_LEMMA", "RIGHT_POS", "RIGHT_CPOS")
-		val rtoken = new DependencyToken("ROOT_W", "ROOT_L", "ROOT_POS", "ROOT_CPOS")
+		val stoken = new DependencyToken("LEFFT_W", "LEFT_LEMMA", "LEFT_POS")
+		val etoken = new DependencyToken("RIGHT_W", "RIGHT_LEMMA", "RIGHT_POS")
+		val rtoken = new DependencyToken("ROOT_W", "ROOT_L", "ROOT_POS")
 		val tokens = Array(stoken) ++ Array(rtoken) ++ otokens ++ Array(etoken)
 		val head = ohead + 1 //  -- should be using base 1 anyway, addition not needed
 		val dep  = odep  + 1
@@ -55,6 +56,200 @@ trait DependencyParseFeatures {
 		feats += "1,3:%s,%s;%s".format(htoken.word, htoken.pos, dtoken.pos)
 		feats += "1,3:%s,%s;%s;&%s%d".format(htoken.word, htoken.pos, dtoken.pos, dir, dist)
 		// Then same with the opposing (coarse or fine) part of speech
+		
+		// More..
+		feats += "1:%s;".format(htoken.word)
+		feats += "1:%s;&%s%d".format(htoken.word, dir, dist)
+		feats += "1:%s;1,3:%s,%s".format(htoken.word, dtoken.word, dtoken.pos)
+		feats += "1:%s;1,3:%s,%s;&%s%d".format(htoken.word, dtoken.word, dtoken.pos, dir, dist)
+		feats += "1:%s;1:%s".format(htoken.word, dtoken.word)
+		feats += "1:%s;1:%s&%s%d".format(htoken.word, dtoken.word, dir, dist)
+		feats += "1:%s;2:%s".format(htoken.word, dtoken.lemma)
+		feats += "1:%s;2:%s&%s%d".format(htoken.word, dtoken.lemma, dir, dist)
+		feats += "1:%s;3:%s".format(htoken.word, dtoken.pos)
+		feats += "1:%s;3:%s&%s%d".format(htoken.word, dtoken.pos, dir, dist)
+		
+		
+		// WITH HEAD LEMMAS
+		feats += "2,3:%s,%s;".format(htoken.lemma, htoken.pos)
+		feats += "2,3:%s,%s;&%s%d".format(htoken.lemma, htoken.pos, dir, dist)
+		feats += "2,3:%s,%s;%s,%s".format(htoken.lemma, htoken.pos, dtoken.lemma, dtoken.pos)
+		feats += "2,3:%s,%s;%s,%s;&%s%d".format(htoken.lemma, htoken.pos, dtoken.lemma, dtoken.pos, dir, dist)
+		feats += "2,3:%s,%s;%s".format(htoken.lemma, htoken.pos, dtoken.lemma)
+		feats += "2,3:%s,%s;%s;&%s%d".format(htoken.lemma, htoken.pos, dtoken.lemma, dir, dist)
+		feats += "2,3:%s,%s;%s".format(htoken.lemma, htoken.pos, dtoken.pos)
+		feats += "2,3:%s,%s;%s;&%s%d".format(htoken.lemma, htoken.pos, dtoken.pos, dir, dist)
+		// Backoffs	
+
+		feats += "2:%s;".format(htoken.lemma)
+		feats += "2:%s;&%s%d".format(htoken.lemma, dir, dist)
+		feats += "2:%s;1:%s".format(htoken.lemma, dtoken.word, dir, dist)
+		feats += "2:%s;1:%s:&%s%d".format(htoken.lemma, dtoken.word, dir, dist)
+		feats += "2:%s;1,3:%s,%s".format(htoken.lemma, dtoken.lemma, dtoken.pos)
+		feats += "2:%s;1,3:%s,%s;&%s%d".format(htoken.lemma, dtoken.lemma, dtoken.pos, dir, dist)
+		feats += "2:%s;2:%s".format(htoken.lemma, dtoken.lemma)
+		feats += "2:%s;2:%s&%s%d".format(htoken.lemma, dtoken.lemma, dir, dist)
+		feats += "2:%s;3:%s".format(htoken.lemma, dtoken.pos)
+		feats += "2:%s;3:%s&%s%d".format(htoken.lemma, dtoken.pos, dir, dist)
+
+		feats += "3:%s".format(htoken.pos)
+		feats += "3:%s;&%s%d".format(htoken.pos, dir, dist)
+		feats += "3:%s;1,3:%s,%s".format(htoken.pos, dtoken.word, dtoken.pos, dir, dist)
+		feats += "3:%s;1,3:%s,%s&%s%d".format(htoken.pos, dtoken.word, dtoken.pos, dir, dist)
+		feats += "3:%s;1:%s".format(htoken.pos, dtoken.word)
+		feats += "3:%s;1:%s&%s%d".format(htoken.pos, dtoken.word, dir, dist)
+		feats += "3:%s;2,3:%s,%s".format(htoken.pos, dtoken.lemma, dtoken.pos)
+		feats += "3:%s;2,3:%s,%s&%s%d".format(htoken.pos, dtoken.lemma, dtoken.pos, dir, dist)
+		feats += "3:%s;2:%s".format(htoken.pos, dtoken.lemma)
+		feats += "3:%s;2:%s&%s%d".format(htoken.pos, dtoken.lemma, dir, dist)
+		feats += "3:%s;3:%s".format(htoken.pos, dtoken.pos)
+		feats += "3:%s;3:%s&%s%d".format(htoken.pos, dtoken.pos, dir, dist)
+		
+		feats += ";1,3:%s,%s".format(dtoken.word, dtoken.pos)
+		feats += ";1,3:%s,%s&%s%d".format(dtoken.word, dtoken.pos, dir, dist)
+		feats += ";1:%s".format(dtoken.word)
+		feats += ";1:%s&%s%d".format(dtoken.word, dir, dist)
+		feats += ";2,3:%s,%s".format(dtoken.lemma, dtoken.pos)
+		feats += ";2,3:%s,%s&%s%d".format(dtoken.lemma, dtoken.pos, dir, dist)
+		feats += ";2:%s".format(dtoken.lemma)
+		feats += ";2:%s&%s%d".format(dtoken.lemma, dir, dist)
+		feats += ";3:%s".format(dtoken.pos)
+		feats += ";3:%s&%s%d".format(dtoken.pos, dir, dist)
+
+
+		
+		val partition = if (dist % 2 != 0) (dist+1) / 2 else dist / 2
+		for (cut <- 1 to Math.min(partition, 3)) { //Math.min(Array(partition, 2))) {
+			if (partition == cut) {
+				feats += "tw3,%s,%s,%s".format(tokens(small).pos, tokens(large).pos, tokens(small+cut).pos)
+				feats += "tw3,%s,%s,%s&%s%d".format(tokens(small).pos, tokens(large).pos, tokens(small+1).pos, dir, dist)				
+			}			
+			feats += "tw3,%s,%s,%s".format(tokens(small).pos, tokens(large).pos, tokens(large-1).pos)
+			feats += "tw3,%s,%s,%s&%s%d".format(tokens(small).pos, tokens(large).pos, tokens(large-1).pos, dir, dist)
+		}
+
+/*	
+			feats += "adj3:%s,%s,%s,%s,%s".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos, dir, dist)
+*/
+
+			feats += "adj3:%s,%s,%s,%s,%s".format("", "", tokens(small+1).pos, tokens(large-1).pos, tokens(large).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format("", "", tokens(small+1).pos, tokens(large-1).pos, tokens(large).pos, dir, dist)
+
+			feats += "adj3:%s,%s,%s,%s,%s,%s&%s%d".format("", tokens(small).pos, "", "", tokens(large).pos, tokens(large+1).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s".format("", tokens(small).pos, "", tokens(large-1).pos, tokens(large).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format("", tokens(small).pos, "", tokens(large-1).pos, tokens(large).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s".format("", tokens(small).pos, tokens(small+1).pos, "", tokens(large).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format("", tokens(small).pos, tokens(small+1).pos, "", tokens(large).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s,%s".format("", tokens(small).pos, tokens(small+1).pos, "", tokens(large).pos, tokens(large+1).pos)
+			feats += "adj3:%s,%s,%s,%s,%s,%s&%s%d".format("", tokens(small).pos, tokens(small+1).pos, "", tokens(large).pos, tokens(large+1).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s,%s".format("", tokens(small).pos, tokens(small+1).pos, tokens(large-1).pos, "", "")
+			feats += "adj3:%s,%s,%s,%s,%s,%s&%s%d".format("", tokens(small).pos, tokens(small+1).pos, tokens(large-1).pos, "", "", dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s,%s".format("", tokens(small).pos, tokens(small+1).pos, tokens(large-1).pos, tokens(large).pos, "")
+			feats += "adj3:%s,%s,%s,%s,%s,%s&%s%d".format("", tokens(small).pos, tokens(small+1).pos, tokens(large-1).pos, tokens(large).pos, "", dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s,%s".format(tokens(small-1).pos, tokens(small).pos, "", "", "", tokens(large+1).pos)
+			feats += "adj3:%s,%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, tokens(small).pos, "", "", "", tokens(large+1).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s".format(tokens(small-1).pos, tokens(small).pos, "", "", tokens(large).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, tokens(small).pos, "", "", tokens(large).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s,%s".format(tokens(small-1).pos, tokens(small).pos, "", "", tokens(large).pos, tokens(large+1).pos)
+			feats += "adj3:%s,%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, tokens(small).pos, "", "", tokens(large).pos, tokens(large+1).pos, dir, dist)
+			feats += "adj3:%s,%s,%s,%s,%s".format(tokens(small-1).pos, tokens(small).pos, "", tokens(large-1).pos, tokens(large).pos)
+			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, tokens(small).pos, "", tokens(large-1).pos, tokens(large).pos, dir, dist)
+
+		return feats.toArray
+	}
+
+  def wordLevelDependencyFeatures(words: Array[String], ohead: Int, odep: Int): Array[String] = {
+    val feats = new ArrayBuffer[String]
+    val tokens = Array("<BEFORE>", "<ROOT>") ++ words ++ Array("<END>", "<AFTER>")
+    val head = ohead+1
+    val dep = odep+1
+    val hword = tokens(head)
+    val dword = tokens(dep)
+    val dir  = if (dep > head) "R" else "L"
+    val dist = scala.math.abs(head - dep)
+
+    feats += "[head-word]-%s".format(hword)
+    feats += "[dep-word]-%s".format(dword)
+    feats += "[head-word-dist]-%s-%d".format(hword, dist)
+    feats += "[dep-word-dist]-%s-%d".format(dword, dist)
+    feats += "[head-word-dir]-%s-%s".format(hword, dir)
+    feats += "[dep-word-dir]-%s-%s".format(dword, dir)
+
+    feats += "[head-dep-word]-%s-%s".format(hword, dword)
+    feats += "[head-dep-word-dist]-%s-%s-%d".format(hword, dword, dist)
+    feats += "[head-dep-word-dir]-%s-%s-%s".format(hword, dword, dir)
+    feats += "[head-dep-word-dist-dir]-%s-%s-%d-%s".format(hword, dword, dist, dir)
+
+    feats += "[prev-word-head-word]-%s-%s".format(tokens(head-1), hword)
+    feats += "[prev-word-dep-word]-%s-%s".format(tokens(dep-1), dword)
+    feats += "[next-word-head-word]-%s-%s".format(tokens(head+1), hword)
+    feats += "[next-word-dep-word]-%s-%s".format(tokens(dep+1), dword)
+
+    feats += "[prevword-headword-depword]-%s-%s-%s".format(tokens(head-1), hword, dword)
+    feats += "[prevword-depword-headword]-%s-%s-%s".format(tokens(dep-1), dword, hword)
+    feats += "[nextword-headword-depword]-%s-%s-%s".format(tokens(head+1), hword, dword)
+    feats += "[nextword-depword-headword]-%s-%s-%s".format(tokens(dep+1), dword, hword)
+
+    val lesser  = if (dep < head) dep else head
+    val greater = if (dep < head) head else dep
+    if (dist < 10) feats += "[words-between]-%s".format(tokens.slice(lesser, greater))
+    /*
+    val charWindow = 4
+    for (i <- 1 until scala.math.max(hword.size, charWindow)) feats += "[hword-%d]-%s".format(i, hword.substring(-i))
+    for (j <- 1 until scala.math.max(dword.size, charWindow)) feats += "[dword-%d]-%s".format(j, dword.substring(-j))
+    for (i <- 1 until scala.math.max(hword.size, charWindow); j <- 1 until scala.math.max(dword.size, charWindow)) {
+      feats += "[hword-%d-dword-%d]-%s-%s".format(i, j, hword.substring(-i), dword.substring(-j))
+    }
+    */
+    return feats.toArray
+  }
+}
+
+
+
+
+
+
+
+
+/*
+    def dependencyFeatures(datum: CoNLLDatum, ohead: Int, odep: Int): Array[String] = {
+//		System.err.println("Conll size = " + datum.slen + "vs ohead " + ohead + "; vs odep of " + odep)
+		val otokens = (1 to datum.slen).map(i => new DependencyToken(datum.word(i), datum.lemma(i), datum.postag(i), datum.cpostag(i)))
+		val feats = new ArrayBuffer[String]
+
+		val stoken = new DependencyToken("LEFFT_W", "LEFT_LEMMA", "LEFT_POS", "LEFT_CPOS")
+		val etoken = new DependencyToken("RIGHT_W", "RIGHT_LEMMA", "RIGHT_POS", "RIGHT_CPOS")
+		val rtoken = new DependencyToken("ROOT_W", "ROOT_L", "ROOT_POS", "ROOT_CPOS")
+		val tokens = Array(stoken) ++ Array(rtoken) ++ otokens ++ Array(etoken)
+		val head = ohead + 1 //  -- should be using base 1 anyway, addition not needed
+		val dep  = odep  + 1
+
+		val dir  = if (dep > head) "R" else "L"
+		val dist = scala.math.abs(head - dep - 1)
+		val htoken = tokens(head)
+		val dtoken = tokens(dep)
+
+		val small = if (dep < head) dep else head
+		val large = if (dep > head) dep else head
+
+		feats += "1,3:%s,%s;".format(htoken.word, htoken.pos)
+		feats += "1,3:%s,%s;&%s%d".format(htoken.word, htoken.pos, dir, dist)
+		feats += "1,3:%s,%s;%s,%s".format(htoken.word, htoken.pos, dtoken.word, dtoken.pos)
+		feats += "1,3:%s,%s;%s,%s;&%s%d".format(htoken.word, htoken.pos, dtoken.word, dtoken.pos, dir, dist)
+		feats += "1,3:%s,%s;%s".format(htoken.word, htoken.pos, dtoken.word)
+		feats += "1,3:%s,%s;%s;&%s%d".format(htoken.word, htoken.pos, dtoken.word, dir, dist)
+		feats += "1,3:%s,%s;%s".format(htoken.word, htoken.pos, dtoken.pos)
+		feats += "1,3:%s,%s;%s;&%s%d".format(htoken.word, htoken.pos, dtoken.pos, dir, dist)
+		// Then same with the opposing (coarse or fine) part of speech
+
 		feats += "1,4:%s,%s;".format(htoken.word, htoken.cpos)
 		feats += "1,4:%s,%s;&%s%d".format(htoken.word, htoken.cpos, dir, dist)
 		feats += "1,4:%s,%s;%s,%s".format(htoken.word, htoken.cpos, dtoken.word, dtoken.cpos)
@@ -63,7 +258,7 @@ trait DependencyParseFeatures {
 		feats += "1,4:%s,%s;%s;&%s%d".format(htoken.word, htoken.cpos, dtoken.word, dir, dist)
 		feats += "1,4:%s,%s;%s".format(htoken.word, htoken.cpos, dtoken.cpos)
 		feats += "1,4:%s,%s;%s;&%s%d".format(htoken.word, htoken.cpos, dtoken.cpos, dir, dist)
-		
+
 		// More..
 		feats += "1:%s;".format(htoken.word)
 		feats += "1:%s;&%s%d".format(htoken.word, dir, dist)
@@ -79,8 +274,8 @@ trait DependencyParseFeatures {
 		feats += "1:%s;3:%s&%s%d".format(htoken.word, dtoken.pos, dir, dist)
 		feats += "1:%s;4:%s".format(htoken.word, dtoken.cpos)
 		feats += "1:%s;4:%s&%s%d".format(htoken.word, dtoken.cpos, dir, dist)
-		
-		
+
+
 		// WITH HEAD LEMMAS
 		feats += "2,3:%s,%s;".format(htoken.lemma, htoken.pos)
 		feats += "2,3:%s,%s;&%s%d".format(htoken.lemma, htoken.pos, dir, dist)
@@ -98,8 +293,8 @@ trait DependencyParseFeatures {
 		feats += "2,4:%s,%s;%s".format(htoken.lemma, htoken.cpos, dtoken.lemma)
 		feats += "2,4:%s,%s;%s;&%s%d".format(htoken.lemma, htoken.cpos, dtoken.lemma, dir, dist)
 		feats += "2,4:%s,%s;%s".format(htoken.lemma, htoken.cpos, dtoken.cpos)
-		feats += "2,4:%s,%s;%s;&%s%d".format(htoken.lemma, htoken.cpos, dtoken.cpos, dir, dist)	
-		// Backoffs	
+		feats += "2,4:%s,%s;%s;&%s%d".format(htoken.lemma, htoken.cpos, dtoken.cpos, dir, dist)
+		// Backoffs
 
 		feats += "2:%s;".format(htoken.lemma)
 		feats += "2:%s;&%s%d".format(htoken.lemma, dir, dist)
@@ -115,7 +310,7 @@ trait DependencyParseFeatures {
 		feats += "2:%s;3:%s&%s%d".format(htoken.lemma, dtoken.pos, dir, dist)
 		feats += "2:%s;4:%s".format(htoken.lemma, dtoken.cpos)
 		feats += "2:%s;4:%s&%s%d".format(htoken.lemma, dtoken.cpos, dir, dist)
-		
+
 		feats += "3:%s".format(htoken.pos)
 		feats += "3:%s;&%s%d".format(htoken.pos, dir, dist)
 		feats += "3:%s;1,3:%s,%s".format(htoken.pos, dtoken.word, dtoken.pos, dir, dist)
@@ -141,7 +336,7 @@ trait DependencyParseFeatures {
 		feats += "4:%s;2:%s&%s%d".format(htoken.cpos, dtoken.lemma, dir, dist)
 		feats += "4:%s;4:%s".format(htoken.cpos, dtoken.pos)
 		feats += "4:%s;4:%s&%s%d".format(htoken.cpos, dtoken.pos, dir, dist)
-		
+
 		feats += ";1,3:%s,%s".format(dtoken.word, dtoken.pos)
 		feats += ";1,3:%s,%s&%s%d".format(dtoken.word, dtoken.pos, dir, dist)
 		feats += ";1,4:%s,%s".format(dtoken.word, dtoken.cpos)
@@ -158,15 +353,15 @@ trait DependencyParseFeatures {
 		feats += ";3:%s&%s%d".format(dtoken.pos, dir, dist)
 		feats += ";4:%s".format(dtoken.cpos)
 		feats += ";4:%s&%s%d".format(dtoken.cpos, dir, dist)
-		
 
-		
+
+
 		val partition = if (dist % 2 != 0) (dist+1) / 2 else dist / 2
 		for (cut <- 1 to Math.min(partition, 3)) { //Math.min(Array(partition, 2))) {
 			if (partition == cut) {
 				feats += "tw3,%s,%s,%s".format(tokens(small).pos, tokens(large).pos, tokens(small+cut).pos)
-				feats += "tw3,%s,%s,%s&%s%d".format(tokens(small).pos, tokens(large).pos, tokens(small+1).pos, dir, dist)				
-			}			
+				feats += "tw3,%s,%s,%s&%s%d".format(tokens(small).pos, tokens(large).pos, tokens(small+1).pos, dir, dist)
+			}
 			feats += "tw3,%s,%s,%s".format(tokens(small).pos, tokens(large).pos, tokens(large-1).pos)
 			feats += "tw3,%s,%s,%s&%s%d".format(tokens(small).pos, tokens(large).pos, tokens(large-1).pos, dir, dist)
 		}
@@ -174,13 +369,13 @@ trait DependencyParseFeatures {
 		for (cut <- 1 to partition) { //Math.min(Array(partition, 2))) {
 			if (partition == cut) {
 				feats += "tw4,%s,%s,%s".format(tokens(small).cpos, tokens(large).cpos, tokens(small+cut).cpos)
-				feats += "tw4,%s,%s,%s&%s%d".format(tokens(small).cpos, tokens(large).cpos, tokens(small+1).cpos, dir, dist)				
-			}			
+				feats += "tw4,%s,%s,%s&%s%d".format(tokens(small).cpos, tokens(large).cpos, tokens(small+1).cpos, dir, dist)
+			}
 			feats += "tw4,%s,%s,%s".format(tokens(small).cpos, tokens(large).cpos, tokens(large-1).cpos)
 			feats += "tw4,%s,%s,%s&%s%d".format(tokens(small).cpos, tokens(large).cpos, tokens(large-1).cpos, dir, dist)
 		}
-			
-/*	
+
+/*
 			feats += "adj3:%s,%s,%s,%s,%s".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos)
 			feats += "adj3:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos, dir, dist)
 			feats += "adj3:%s,%s,%s,%s,%s".format(tokens(small-1).pos, "", "", tokens(large).pos, tokens(large+1).pos)
@@ -239,19 +434,19 @@ trait DependencyParseFeatures {
 			feats += "adj4:%s,%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).cpos, tokens(small).cpos, "", "", tokens(large).cpos, tokens(large+1).cpos, dir, dist)
 			feats += "adj4:%s,%s,%s,%s,%s".format(tokens(small-1).cpos, tokens(small).cpos, "", tokens(large-1).cpos, tokens(large).cpos)
 			feats += "adj4:%s,%s,%s,%s,%s&%s%d".format(tokens(small-1).cpos, tokens(small).cpos, "", tokens(large-1).cpos, tokens(large).cpos, dir, dist)
-		
+
 		return feats.toArray
 	}
 
   def wordLevelDependencyFeatures(words: Array[String], ohead: Int, odep: Int): Array[String] = {
     val feats = new ArrayBuffer[String]
-    val tokens = Array("<ROOT>") ++ words ++ Array("<END>")
-    val hword = words(ohead)
-    val dword = words(odep)
-    val head = ohead
-    val dep = odep
+    val tokens = Array("<BEFORE>", "<ROOT>") ++ words ++ Array("<END>", "<AFTER>")
+    val head = ohead+1
+    val dep = odep+1
+    val hword = tokens(head)
+    val dword = tokens(dep)
     val dir  = if (dep > head) "R" else "L"
-    val dist = scala.math.abs(head - dep - 1)
+    val dist = scala.math.abs(head - dep)
 
     feats += "[head-word]-%s".format(hword)
     feats += "[dep-word]-%s".format(dword)
@@ -278,22 +473,17 @@ trait DependencyParseFeatures {
     val lesser  = if (dep < head) dep else head
     val greater = if (dep < head) head else dep
     if (dist < 10) feats += "[words-between]-%s".format(tokens.slice(lesser, greater))
+    /*
     val charWindow = 4
     for (i <- 1 until scala.math.max(hword.size, charWindow)) feats += "[hword-%d]-%s".format(i, hword.substring(-i))
     for (j <- 1 until scala.math.max(dword.size, charWindow)) feats += "[dword-%d]-%s".format(j, dword.substring(-j))
     for (i <- 1 until scala.math.max(hword.size, charWindow); j <- 1 until scala.math.max(dword.size, charWindow)) {
       feats += "[hword-%d-dword-%d]-%s-%s".format(i, j, hword.substring(-i), dword.substring(-j))
     }
+    */
     return feats.toArray
   }
-
-  def groupedWordLevelDependencyFeatures(words: Array[String], ohead: Int, odep: Int): Array[StringFeature] = {
-    wordLevelDependencyFeatures(words, ohead, odep).map(f => new StringFeature(f, 1.0, 1))
-  }
-}
-
-
-
+ */
 
 
 

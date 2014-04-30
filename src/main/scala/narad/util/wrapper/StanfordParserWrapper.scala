@@ -2,7 +2,7 @@ package narad.util
 import edu.stanford.nlp.trees._
 import edu.stanford.nlp.parser.lexparser.{LexicalizedParser, Options}
 import edu.stanford.nlp.trees.international.pennchinese.ChineseGrammaticalStructure
-import narad.nlp.trees.{ConstituentTree => STree, TreeFactory => STreeFactory}
+import narad.nlp.trees.{ConstituentTree => STree, ConstituentTreeFactory => STreeFactory}
 import narad.io.tree.TreebankReader
 import scala.collection.JavaConversions._ 
 

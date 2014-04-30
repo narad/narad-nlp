@@ -25,34 +25,15 @@ object SRL extends SRLFeatures {
   }
 
   def run(params: SRLParams) {
-    //println("MODEL = " + params.MODEL)
     val dict = SRLDictionary.construct(params.TRAIN_FILE)
     val model = new SRLModel(dict, params)
-/*
-      params.MODEL match {
-      case "ORACLE" => new OracleSRL(params)
-      case "HIDDEN" => new HiddenSyntaxSRL(params)
-      case _ => new BaselineSRL(params)
-    }
-*/
     if (params.EXTRACT_FEATURES) {
       System.err.println("Extracting features...")
-      val reader = new SRLReader(params.TRAIN_FILE)
-      var maxDist = 0
-      reader.foreach {
-        d => val slen = d.slen
-        for (i <- 0 to slen; j <- 0 to slen) {
-          if (d.hasArg(i, j)) {
-            val dist = math.abs(i-j)
-            if (dist > maxDist) maxDist = dist
-          }
-        }
-      }
-      maxDist = params.MAX_DIST
-      val dict = SRLDictionary.construct(params.TRAIN_FILE)
+//      val reader = new SRLReader(params.TRAIN_FILE)
+//      val dict = SRLDictionary.construct(params.TRAIN_FILE)
       val index = if (params.HASH_DICT) new HashIndex(params.PV_SIZE) else new ArrayIndex[String]()
-      model.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, dict, maxDist, index, params)
-      model.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, dict, maxDist, index, params)
+      model.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, dict, index, params)
+      model.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, dict, index, params)
       if (!params.HASH_DICT) index.writeToFile("feats.index")
     }
     if (params.getBoolean("--train")) {
@@ -67,6 +48,46 @@ object SRL extends SRLFeatures {
     }
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 //    if (params.getBoolean("--train") || params.getBoolean("--test")) {

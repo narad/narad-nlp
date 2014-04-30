@@ -18,24 +18,23 @@ import collection.mutable.{HashMap, ArrayBuffer, HashSet}
  */
 
 /*
+
 object CoarseToFineTagger extends TaggerFeatures {
 
-  def run(params: TaggerParams): TaggerClassifier = {
+  def run(params: TaggerParams) { //: TaggerClassifier = {
     val tagger =  new UnigramTaggerModel(params)
     val dict   = TagDictionary.construct(new CoNLLReader(params.TRAIN_FILE), mode=params.MODE)
     val tags = dict.all
 
     val index  = new HashIndex(params.PV_SIZE)
-
-
     var train = new CoNLLReader(params.TRAIN_FILE)
-    val optimizer = new CoarseToFineOptimizer(tagger, params) with L2Regularizer
+    val optimizer = new CoarseToFineOptimizer(tagger, params)
     val pv = optimizer.train(train.toIterable, dict, index, params)
 
     val test = new CoNLLReader(params.TEST_FILE)
     optimizer.test(test.toIterable, dict, index, pv, params)
 
-    new TaggerClassifier(pv, dict, index, params)
+//    new TaggerClassifier(pv, dict, index, params)
   }
 }
 
@@ -138,6 +137,44 @@ class CoarseToFineOptimizer(model: UnigramTaggerModel, options: OptimizerOptions
 }
 
 
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 /*
@@ -178,5 +215,4 @@ class CoarseToFineOptimizer(model: UnigramTaggerModel, options: OptimizerOptions
 
 }
 
-*/
 */

@@ -1,3 +1,25 @@
+package narad.nlp.srl
+
+import narad.io.srl.SRLReader
+
+object SRLEval {
+
+  def main(args: Array[String]) {
+    val options = new narad.util.ArgParser(args)
+//    if (args.size == 2) {
+      val goldFile = options.getString("--gold.file")
+      val testFile = options.getString("--test.file")
+      val goldReader = new SRLReader(goldFile)
+      val testReader = new SRLReader(testFile)
+      val ec = testReader.zip(goldReader).map{case(g,t) => g.score(t)}.foldLeft(new SRLEvalContainer)(_.combine(_))
+      println(ec)
+//    }
+//    else {
+
+//    }
+  }
+}
+
 /*
 package narad.nlp.srl
 import java.io.{File, PrintWriter}

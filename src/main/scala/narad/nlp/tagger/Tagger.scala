@@ -5,10 +5,9 @@ import narad.bp.util._
 import narad.bp.util.index._
 import narad.io.conll.CoNLLReader
 import java.io.File
+import narad.nlp.tagger.dependency._
 
-object Tagger extends TaggerFeatures {
-	var dict = new TagDictionary
-  var index = new ArrayIndex[String]()
+object Tagger {
 
   def main(args: Array[String]) {
     val params = new MorphTaggerParams(args)
@@ -16,6 +15,7 @@ object Tagger extends TaggerFeatures {
   }
 
   def run(params: MorphTaggerParams) {
+    System.err.println("Constructing Dictionary...")
     val dict   = if (params.TRAIN_AND_TEST_DICT) {
       MultiTagDictionary.construct(new CoNLLReader(params.TRAIN_FILE) ++ new CoNLLReader(params.TEST_FILE), params.ATTRIBUTES)
     }
@@ -24,30 +24,53 @@ object Tagger extends TaggerFeatures {
     }
     dict.toFile("tags.dict")
 
-    val tagger = new MorphTaggerModel(params, dict)
-
-    if (params.EXTRACT_FEATURES) {
-      if (params.HASH) {
-        val index = new HashIndex(params.PV_SIZE)
-        tagger.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, index, params)
-        tagger.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, index, params)
+    if (params.MODEL == "DEPENDENCY") {
+      val tagger = new DependencyTaggerModel(params, dict)
+      if (params.EXTRACT_FEATURES) {
+        System.err.println("Extracting Features...")
+        if (params.HASH) {
+          val index = new HashIndex(params.PV_SIZE)
+          tagger.extractFeatures2(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, index, params)
+          tagger.extractFeatures2(params.TEST_FILE, params.TEST_FEATURE_FILE, index, params)
+        }
+        else {
+          val index = new ArrayIndex[String]()
+          tagger.extractFeatures2(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, index, params)
+          index.writeToFile("feats")
+          index.freeze
+          tagger.extractFeatures2(params.TEST_FILE, params.TEST_FEATURE_FILE, index, params)
+        }
       }
-      else {
-        val index = new ArrayIndex[String]()
-        tagger.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, index, params)
-        index.writeToFile("feats")
-        index.freeze
-        tagger.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, index, params)
+    }
+    else {
+      val tagger = new MorphTaggerModel(params, dict)
+      if (params.EXTRACT_FEATURES) {
+        System.err.println("Extracting Features...")
+        if (params.HASH) {
+          val index = new HashIndex(params.PV_SIZE)
+          tagger.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, index, params)
+          tagger.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, index, params)
+        }
+        else {
+          val index = new ArrayIndex[String]()
+          tagger.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, index, params)
+          index.writeToFile("feats")
+          index.freeze
+          tagger.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, index, params)
+        }
       }
     }
 
-    if (params.TRAIN) {
-      val optimizer = if (params.GROUP_REGULARIZER) {
-        new Optimizer(tagger, params) //with GroupRegularizer
-      }
-      else {
-        new Optimizer(tagger, params)// with L2Regularizer
-      }
+
+    val tagger = if (params.MODEL == "DEPENDENCY") {
+      new DependencyTaggerModel(params, dict)
+    }
+    else {
+      new MorphTaggerModel(params, dict)
+    }
+
+      if (params.TRAIN) {
+      val optimizer = new Optimizer(tagger, params) // with L2Regularizer
       val data = new PotentialReader(params.TRAIN_FIDX_FILE)
       optimizer.train(data)
     }
@@ -76,6 +99,53 @@ object Tagger extends TaggerFeatures {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//	var dict = new TagDictionary
+//  var index = new ArrayIndex[String]()
+
+
+//      val optimizer = if (params.GROUP_REGULARIZER) {
+//        new Optimizer(tagger, params) //with GroupRegularizer
+//      }
+//      else {
+//      }
 
  /*
 

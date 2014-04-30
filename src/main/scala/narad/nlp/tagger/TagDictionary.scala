@@ -15,10 +15,14 @@ class MultiTagDictionary extends HashMap[String, TagDictionary] {
   }
 
   def tagsOfAttributeOrAll(w: String, attribute: String): Array[String] = {
-    if (contains(attribute) && this(attribute).contains(w))
+    if (contains(attribute) && this(attribute).contains(w)) {
+    //  System.err.println("found in dict: " + w)
       this(attribute).tags(w).toArray
-    else
+    }
+    else {
+   //   System.err.println("not found in dict: " + w)
       tagsOfAttribute(attribute)
+    }
   }
 
   def tagsOfAttribute(attribute: String): Array[String] = {
@@ -104,16 +108,7 @@ object TagDictionary {
 //    val util = new CoNLLReader(filename)
     for (datum <- data) {
       for (i <- 1 to datum.slen) {
-        mode match {
-          case "COARSE" => dictionary.add(datum.word(i), datum.cpostag(i))
-          case "FINE"   => dictionary.add(datum.word(i), datum.postag(i))
-          case "CASE"   => dictionary.add(datum.word(i), datum.mcase(i))
-          case "PERSON" => dictionary.add(datum.word(i), datum.mperson(i))
-          case "GENDER" => dictionary.add(datum.word(i), datum.mgender(i))
-          case "NUMBER" => dictionary.add(datum.word(i), datum.mnumber(i))
-          case "CASE+GENDER+NUMBER" => dictionary.add(datum.word(i),
-            datum.mcase(i) + "|" + datum.mgender(i) + "|" + datum.mnumber(i))
-        }
+        dictionary.add(datum.word(i), datum.attribute(i, mode))
       }
     }
     return dictionary
@@ -131,6 +126,26 @@ object TagDictionary {
   }
 }
 
+
+
+
+
+
+
+
+
+/*
+        mode match {
+          case "COARSE" => dictionary.add(datum.word(i), datum.cpostag(i))
+          case "FINE"   => dictionary.add(datum.word(i), datum.postag(i))
+          case "CASE"   => dictionary.add(datum.word(i), datum.mcase(i))
+          case "PERSON" => dictionary.add(datum.word(i), datum.mperson(i))
+          case "GENDER" => dictionary.add(datum.word(i), datum.mgender(i))
+          case "NUMBER" => dictionary.add(datum.word(i), datum.mnumber(i))
+          case "CASE+GENDER+NUMBER" => dictionary.add(datum.word(i),
+            datum.mcase(i) + "|" + datum.mgender(i) + "|" + datum.mnumber(i))
+        }
+ */
 
 
 /*

@@ -8,6 +8,8 @@ import java.io._
 import collection.mutable.{HashMap, ArrayBuffer, Map}
 import narad.bp.util.index.Index
 
+/*
+
 class UnigramTaggerModel(params: TaggerParams) extends TaggerModel(params) with UnigramTaggerFeatures with UpgradeableTo[ChainTaggerModelInstance] {
   val LABEL_PATTERN  = """ulabel\(([0-9]+),(.+)\)""".r
 
@@ -92,7 +94,7 @@ trait UnigramTaggerFeatures extends TaggerFeatures {
 
 
 
-
+                                         */
 
 
 

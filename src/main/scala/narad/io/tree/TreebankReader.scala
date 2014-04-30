@@ -12,8 +12,7 @@ class TreebankReader(filename: String, options: TreebankReaderOptions = new Defa
   def iterator: Iterator[ConstituentTree] = {
     val transformer = new TreeTransformer(options)
     val text = "(DOC %s)".format(io.Source.fromFile(filename).getLines().filter(!_.startsWith("*")).mkString)
-    val t = stringToTree(text, defaultLabel=options.DEFAULT_LABEL,
-      coarseLabels=options.COARSEN_LABELS)
+    val t = stringToTree(text, defaultLabel=options.DEFAULT_LABEL, coarseLabels=options.COARSEN_LABELS)
     t.getChildren.map(transformer.transformTree(_)).iterator
   }
 }
@@ -28,21 +27,21 @@ trait StringToTreeOps {
     str match {
       case DOUBLE_PAREN_PATTERN() => {
         val children = subexpressions(str).map(stringToTree(_, defaultLabel=defaultLabel))
-        return TreeFactory.buildTree(label=defaultLabel, children=children)
+        return ConstituentTreeFactory.buildTree(label=defaultLabel, children=children)
       }
       case TOKEN_PATTERN(tag, word) => {
-        TreeFactory.buildTree(label=tag, word=word)
+        ConstituentTreeFactory.buildTree(label=tag, word=word)
       }
       case CONSTITUENT_PATTERN(label) => {
         val children = subexpressions(str).map(stringToTree(_, defaultLabel=defaultLabel))
 //        if (coarseLabels)
-//          return TreeFactory.buildTree(label=coarsen(label), children=children)
+//          return ConstituentTreeFactory.buildTree(label=coarsen(label), children=children)
 //        else
-          return TreeFactory.buildTree(label=label, children=children)
+          return ConstituentTreeFactory.buildTree(label=label, children=children)
       }
       case EMPTY_PATTERN() => {
         val children = subexpressions(str).map(stringToTree(_, defaultLabel=defaultLabel))
-        return TreeFactory.buildTree(label=defaultLabel, children=children)
+        return ConstituentTreeFactory.buildTree(label=defaultLabel, children=children)
       }
       case _ => {
         if (str != null) System.err.println("Not recognized: %s".format(str))
@@ -68,24 +67,6 @@ trait StringToTreeOps {
     }
     subs.toList
   }
-
-  /*
-
-  def coarsen(ll: String): String = {
-    if (ll == "-DFL-") return ll
-    var l = ll
-    while (l.startsWith("^")) {
-      l = l.substring(1)
-    }
-    if (l.contains("-"))
-      l = l.substring(0, l.indexOf("-"))
-    if (l.contains("="))
-      l = l.substring(0, l.indexOf("="))
-    if (l.contains("^"))
-      l = l.substring(0, l.indexOf("^"))
-    return l
-  }
-  */
 }
 
 
@@ -103,8 +84,15 @@ object TreebankReader {
     else {
       read(treebankFile, options)
     }
-    for (t <- reader if t.length >= min && t.length <= max) {
-      println(t.toString())
+    if (options.getBoolean("--print.sentences")) {
+      for (t <- reader if t.length >= min && t.length <= max) {
+        println(t.words.mkString(" "))
+      }
+    }
+    else {
+      for (t <- reader if t.length >= min && t.length <= max) {
+        println(t.toString())
+      }
     }
   }
 
@@ -134,6 +122,25 @@ class WSJReader(dir: String) {
 
 
 
+
+
+/*
+
+def coarsen(ll: String): String = {
+  if (ll == "-DFL-") return ll
+  var l = ll
+  while (l.startsWith("^")) {
+    l = l.substring(1)
+  }
+  if (l.contains("-"))
+    l = l.substring(0, l.indexOf("-"))
+  if (l.contains("="))
+    l = l.substring(0, l.indexOf("="))
+  if (l.contains("^"))
+    l = l.substring(0, l.indexOf("^"))
+  return l
+}
+*/
 
 
 
@@ -183,19 +190,19 @@ class WSJReader(dir: String) {
 	def parseExpression(str: String, options: ArgParser = null.asInstanceOf[ArgParser], defaultLabel: String = "TOP"): ConstituentTree = {
 		val coarseTags = true
 		str match {
-			case tokenPattern(tag, word) => TreeFactory.buildTree(label=tag, word=word)
+			case tokenPattern(tag, word) => ConstituentTreeFactory.buildTree(label=tag, word=word)
 			case constPattern(label) => {
 				val children = subexpressions(str).map(parseExpression(_, defaultLabel=defaultLabel)).toArray
 				if (coarseTags)
-				return TreeFactory.buildTree(label=coarsenLabel(label), children=children)
-				//					return transformTree(TreeFactory.buildTree(label=coarsenLabel(label), children=children), options)
+				return ConstituentTreeFactory.buildTree(label=coarsenLabel(label), children=children)
+				//					return transformTree(ConstituentTreeFactory.buildTree(label=coarsenLabel(label), children=children), options)
 				else
-				//					return transformTree(TreeFactory.buildTree(label=label, children=children), options)
-				return TreeFactory.buildTree(label=label, children=children)
+				//					return transformTree(ConstituentTreeFactory.buildTree(label=label, children=children), options)
+				return ConstituentTreeFactory.buildTree(label=label, children=children)
 			}
 			case emptyPattern() => {
 				val children = subexpressions(str).map(parseExpression(_, defaultLabel=defaultLabel)).toArray				
-				return TreeFactory.buildTree(label=defaultLabel, children=children)
+				return ConstituentTreeFactory.buildTree(label=defaultLabel, children=children)
 			}
 			case entry => {
 				if (str != null)

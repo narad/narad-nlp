@@ -8,6 +8,7 @@ import narad.nlp.srl.SRLDatum
 import scala.collection.mutable.HashMap
 import narad.nlp.srl.{SRLFeatures, SRLDictionary}
 import narad.bp.util.index.{Index, ArrayIndex, HashIndex}
+import narad.nlp.ner.{NamedEntityParams, NamedEntityModel}
 
 
 /**
@@ -49,6 +50,9 @@ object RandomModelTester extends SRLFeatures {
       else if (model == "NER") {
         generateNERExample(ner, syntax, pvsize)
       }
+//      else if (model == "NER_JOINT") {
+//        generateJointNERExample(ner, syntax, pvsize)
+//      }
       else if (model == "SRL") {
         generateSRLExample(srl, pvsize)
       }
@@ -145,9 +149,23 @@ object RandomModelTester extends SRLFeatures {
     out.write("\n")
     out.close()
   }
-
+/*
   def generateNERExample(nerFile: String, syntaxFile: String, pvsize: Int) {
-    val reader = new OntoReader(nerFile, syntaxFile)
+    val model = new NamedEntityModel(new NamedEntityParams("--model", "JOINT"))
+    val reader = new OntoReader(nerFile, syntaxFile, new OntoReaderOptions())
+    reader.map { onto =>
+      val ex = model.getNamedEntityFeatures(onto, index, labels, maxSeg, params)
+      if (params.MODEL == "JOINT") {
+        ex += getBracketFeatures(btree, index, params)
+
+      }
+
+  }
+  */
+
+
+    def generateNERExample(nerFile: String, syntaxFile: String, pvsize: Int) {
+    val reader = new OntoReader(nerFile, syntaxFile, new OntoReaderOptions())
     val order = 10
     val ners = reader.toArray.filter{s => s.slen >= 5 && s.slen <= 40}
     val t = ners(Random.nextInt(ners.size-1)+1)

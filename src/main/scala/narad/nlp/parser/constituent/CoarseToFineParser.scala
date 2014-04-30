@@ -7,7 +7,7 @@ import narad.io.tree.TreebankReader
 import narad.io.tree.StringToTreeOps
 import java.io.FileWriter
 import narad.bp.util.index._
-import narad.nlp.trees.{Span, TreeFactory}
+import narad.nlp.trees.{Span, ConstituentTreeFactory}
 import collection.mutable.ArrayBuffer
 
 /**

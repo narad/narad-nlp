@@ -1,15 +1,19 @@
 package narad.nlp.srl
 
-import narad.util.ArgParser
-import narad.bp.structure.Potential
-import scala.collection.mutable.{ArrayBuffer, HashSet}
+
+import scala.collection.mutable.ArrayBuffer
 import narad.bp.optimize.Scorable
-import narad.nlp.parser.metrics.EvalBContainer
+import narad.nlp.trees.DependencyTree
+import narad.io.conll.CoNLLDatum
 
 
-class SRLDatum(grid: Array[Array[String]]) extends Scorable {
+class SRLDatum(grid: Array[Array[String]]) extends CoNLLDatum with Scorable {
 	private val preds = constructPreds(grid)
 	private val args  = constructArgs(grid)
+
+  def argumentsOf(pidx: Int): Iterable[Int] = {
+    (1 to slen).filter(hasArg(pidx,_))
+  }
 
 	def constructPreds(grid: Array[Array[String]]): Array[Int] = {
 		grid.filter(_(12) == "Y").map(_(0).toInt)
@@ -30,9 +34,12 @@ class SRLDatum(grid: Array[Array[String]]) extends Scorable {
 	
 	def getLabel(pidx: Int, aidx: Int) = args(pidx)(aidx)
 
-	def hasArg(pidx: Int, aidx: Int) = hasPredicate(pidx) && args(pidx)(aidx) != "_" 
+	def hasArg(pidx: Int, aidx: Int) = {
+ //   println("args(%d,%d) = %s".format(pidx, aidx, args(pidx)(aidx)))
+    hasPredicate(pidx) && args(pidx)(aidx) != "_"
+  }
 
-	def hasArgLabel(pidx: Int, aidx: Int, label: String) = args(pidx)(aidx) == label
+	def hasRole(pidx: Int, aidx: Int, label: String) = args(pidx)(aidx) == label
 
 	def hasPred(pidx: Int) = preds.contains(pidx) 
 
@@ -40,7 +47,7 @@ class SRLDatum(grid: Array[Array[String]]) extends Scorable {
 	
 	def hasSense(pidx: Int, str: String) = grid(pidx-1)(13) == str
 	
-	def predicates: Array[Int] = preds 
+	def predicates: Array[Int] = preds
 	
 	def form(i: Int) = grid(i-1)(1)
 	
@@ -76,6 +83,16 @@ class SRLDatum(grid: Array[Array[String]]) extends Scorable {
 	
 	def ppostags = (for (i <- 0 until slen) yield grid(i)(5))
 
+  def cpostag(i: Int) = {
+    assert(false, "SRL Datums have no coarse postags")
+    grid(i-1)(5)
+  }
+
+  def cpostags = {
+    assert(false, "SRL Datums have no coarse postags")
+    (for (i <- 0 until slen) yield grid(i)(5))
+  }
+
 	def feat(i: Int) = grid(i-1)(6)
 	
 	def feats = (for (i <- 0 until slen) yield grid(i)(6))
@@ -101,10 +118,23 @@ class SRLDatum(grid: Array[Array[String]]) extends Scorable {
 	def pdeprels = (for (i <- 0 until slen) yield grid(i)(11))
 	
 	def sense(i: Int) = grid(i-1)(13)
+
+  def roles(pidx: Int): Array[String] = {
+    val ab = new ArrayBuffer[String]()
+    for (aidx <- 1 to slen) ab += args(pidx)(aidx)
+    ab.toArray.filter(_ != "_")
+  }
 	
 	def slen = grid.size
 
+  def goldTree = new DependencyTree(heads.toArray)
+
+  def parsedTree = new DependencyTree(pheads.toArray)
+
+  def word(i: Int) = form(i)
+
   def words = forms
+
 
   def score(other: Scorable): SRLEvalContainer = {
     other match {
@@ -114,10 +144,21 @@ class SRLDatum(grid: Array[Array[String]]) extends Scorable {
   }
 	
 	def tokens: Array[SRLToken] = {
-		(1 to slen).toArray.map{i => new SRLToken(form(i), lemma(i), postag(i), ppostag(i), feat(i))}
+		(1 to slen).toArray.map{i => new SRLToken(form(i), lemma(i), postag(i), feat(i))}
 	}
 	
 	override def toString = grid.map(_.mkString("\t")).mkString("\n")
+
+  def attribute(i: Int, m: String): String = {
+    m match {
+      case "COARSE" => cpostag(i)
+      case "FINE"   => postag(i)
+      case _ => {
+        assert(false, "Not yet implemented")
+        ""
+      }
+    }
+  }
 }
 
 object SRLDatum {

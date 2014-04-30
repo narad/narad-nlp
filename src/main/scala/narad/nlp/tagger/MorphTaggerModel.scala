@@ -7,6 +7,7 @@ import narad.bp.util.{GZipWriter, Feature, PotentialExample, StringFeature}
 import collection.mutable.{HashMap, ArrayBuffer, Map}
 import narad.bp.structure.{FactorGraphBuilder, ModelInstance, Potential}
 import narad.nlp.parser.dependency.DependencyParseFeatures
+import narad.nlp.tagger.factorial._
 import util.matching.Regex
 
 /**
@@ -19,14 +20,11 @@ import util.matching.Regex
 
 
 class MorphTaggerModel(params: MorphTaggerParams, dict: MultiTagDictionary) extends FactorialTaggerModel(params) with TaggerFeatures with MorphFeatures with DependencyParseFeatures {
-//  override val BIGRAM_PATTERN   = """bigram\(([0-9]+),([0-9]+),([0-9]+),([0-9]+),([0-9]+)\)""".r
-//  override val TRIGRAM_PATTERN  = """trigram\(([0-9]+),([0-9]+),([0-9]+),([0-9]+)\)""".r
   val LINK_PATTERN              = """un\(([0-9]+),([0-9]+)\)""".r
 
   def extractFeatures(trainFile: String, trainFeatureFile: String, index: Index[String], params: MorphTaggerParams) = {
-    val useIndices = false
     val in = trainFile
-    val out = new GZipWriter(trainFeatureFile + ".gz")//new FileWriter(trainFeatureFile)
+    val out = new GZipWriter(trainFeatureFile + ".gz")
     val reader = new CoNLLReader(in)
     var startTime = System.currentTimeMillis()
     val batchSize = params.FEATURE_BATCH_SIZE
@@ -40,6 +38,7 @@ class MorphTaggerModel(params: MorphTaggerParams, dict: MultiTagDictionary) exte
       }
       pexs.foreach { pex =>
         pex.writeToFile(out)
+        out.write("\n")
       }
     }
     out.close()
@@ -47,38 +46,16 @@ class MorphTaggerModel(params: MorphTaggerParams, dict: MultiTagDictionary) exte
   }
 
   def getExample(datum: CoNLLDatum, index: Index[String]): PotentialExample = {
-    val slen = datum.slen
-//    val attributes  = Map[String, String]()
-//    val potentials = new ArrayBuffer[Potential]
-//    val featureMap = new HashMap[String, Array[Feature]]
     val ex = new PotentialExample
-    assert(false, "Need to implement the code below")
-/*
     val chains = params.ATTRIBUTES
-    val SLICE_DEP_PATTERN = """\(([0-9]+),([0-9]+)\)""".r
-    val sliceDeps = new ArrayBuffer[(Int, Int)]()
-    if (params.SLICE_DEPENDENCIES == "ALL") {
-      for (i <- 0 until chains.size; j <- i+1 until chains.size) {
-        sliceDeps += ((i, j))
-      }
-    }
-    else if (!params.SLICE_DEPENDENCIES.isEmpty) {
-      SLICE_DEP_PATTERN.findAllIn(params.SLICE_DEPENDENCIES).matchData.foreach { m =>
-        sliceDeps += ((m.group(1).toInt, m.group(2).toInt))
-      }
-    }
-
     addAttributes(ex, datum, chains)
-    addLabelPotentials(potentials, datum, chains, index, featureMap)
-    if (params.CHAIN_ORDER == 2) {
-      addChainPotentials(potentials, datum, chains, index, featureMap)
-    }
-    if (sliceDeps.size > 0) {
-      addSlicePotentials(potentials, datum, chains, sliceDeps.toArray, index, featureMap)
-    }
-    */
-    ex //new PotentialExample(attributes, potentials, featureMap)
+    addLabelPotentials(ex, datum, chains, index)
+    if (params.MODEL == "BIGRAM") addChainPotentials(ex, datum, chains, index)
+    if (params.MODEL == "SYNTAX") addSyntaxPotentials(ex, datum, chains, index)
+    if (params.MODEL == "SPLIT") addSplitPotentials(ex, datum, chains, index)
+    ex
   }
+
 
   def addAttributes(ex: PotentialExample, datum: CoNLLDatum, mattr: Array[String]) {
     ex.attributes("len") = datum.slen.toString
@@ -86,20 +63,17 @@ class MorphTaggerModel(params: MorphTaggerParams, dict: MultiTagDictionary) exte
     ex.attributes("chains") = mattr.size.toString
     ex.attributes("attrs") = mattr.mkString(" ")
     ex.attributes("words") = datum.words.mkString(" ")
+    ex.attributes("model") = params.MODEL
     for (attr <- mattr) {
       ex.attributes(attr) = dict.tagsOfAttribute(attr).mkString(" ")
-      //attributes(attr) = (1 to datum.slen).map(datum.getAttribute(_, attr)).mkString(" ")
     }
- //   attributes("tags") = dict.tagsOfAttribute(mattr(0)).mkString(" ")
   }
 
-  def addLabelPotentials(potentials: ArrayBuffer[Potential], datum: CoNLLDatum, mattr: Array[String],
-                         index: Index[String], fmap: HashMap[String, Array[Feature]]) {
+  def addLabelPotentials(ex: PotentialExample, datum: CoNLLDatum, mattr: Array[String], index: Index[String]) {
     for (chain <- 0 until mattr.size) {
       val attr = mattr(chain)
       for (slice <- 1 to datum.slen) {
-      val word = datum.word(slice)
-      val feats = unigramLexicalFeatures(datum.words.toArray, slice, params)
+        val feats = unigramLexicalFeatures(datum.words.toArray, slice, params)
         val tags = if (params.SPARSE) {
           dict.tagsOfAttributeOrAll(datum.word(slice), attr)
         }
@@ -108,15 +82,14 @@ class MorphTaggerModel(params: MorphTaggerParams, dict: MultiTagDictionary) exte
         }
         for (tag <- 0 until tags.size) {
           val potname = "%s(%d,%d,%d)".format(params.LABEL_NAME, chain, slice, tag)
-          potentials += new Potential(1.0, potname, tags(tag) == correct(slice, datum, attr))
-          if (params.INTEGERIZE) {
-            fmap(potname) = feats.map{ f =>
-              new Feature(index.index("%s_%s_%s".format(attr, tags(tag), f.name)), f.value, f.group)
+          ex.potentials += new Potential(1.0, potname, tags(tag) == correct(slice, datum, attr))
+          ex.features(potname) = feats.map { f =>
+            val fname = "%s_%s_%s".format(attr, tags(tag), f)
+            if (params.INTEGERIZE) {
+              new Feature(index.index(fname))
             }
-          }
-          else {
-            fmap(potname) = feats.map{ f =>
-              new StringFeature("%s_%s_%s".format(attr, tags(tag), f.name), f.value, f.group)
+            else {
+              new StringFeature(fname, index.index(fname))
             }
           }
         }
@@ -124,32 +97,71 @@ class MorphTaggerModel(params: MorphTaggerParams, dict: MultiTagDictionary) exte
     }
   }
 
-  def addChainPotentials(potentials: ArrayBuffer[Potential], datum: CoNLLDatum, mattr: Array[String],
-                         index: Index[String], fmap: HashMap[String, Array[Feature]]) {
+  def addChainPotentials(ex: PotentialExample, datum: CoNLLDatum, mattr: Array[String], index: Index[String]) {
     for (chain <- 0 until mattr.size; slice <- 1 until datum.slen) {
-      val feats = groupedBigramLexicalFeatures(datum.words.toArray, slice, slice+1, params)
+        val feats = groupedBigramLexicalFeatures(datum.words.toArray, slice, slice+1, params)
       val attr = mattr(chain)
       val itags = if (params.SPARSE) dict.tagsOfAttributeOrAll(datum.word(slice), attr) else dict.tagsOfAttribute(attr)
       val jtags = if (params.SPARSE) dict.tagsOfAttributeOrAll(datum.word(slice+1), attr) else dict.tagsOfAttribute(attr)
-      for (tj <- 0 until jtags.size; ti <- 0 until itags.size) {
+      for (ti <- 0 until itags.size; tj <- 0 until jtags.size) {
         val potname = "chain(%d,%d,%d,%d,%d,%d)".format(chain, chain, slice, slice+1, ti, tj)
-        potentials += new Potential(1.0, potname, itags(ti) == correct(slice, datum, attr) && jtags(tj) == correct(slice+1, datum, attr))
-        if (params.INTEGERIZE) {
-          fmap(potname) = feats.map{ f =>
-            new Feature(index.index("%s_%s_%s_%s".format(attr, itags(ti), jtags(tj), f.name)), f.value, f.group)
+        ex.potentials += new Potential(1.0, potname, itags(ti) == correct(slice, datum, attr) && jtags(tj) == correct(slice+1, datum, attr))
+        ex.features(potname) = feats.map { f =>
+          val fname = "%s_%s_%s_%s".format(attr, itags(ti), jtags(tj), f)
+          if (params.INTEGERIZE) {
+            new Feature(index.index(fname))
           }
-        }
-        else {
-          fmap(potname) = feats.map{ f =>
-            new StringFeature("%s_%s_%s_%s".format(attr, itags(ti), jtags(tj), f.name), f.value, f.group)
+          else {
+            new StringFeature(fname, index.index(fname))
           }
         }
       }
     }
   }
 
+  def addSyntaxPotentials(ex: PotentialExample, datum: CoNLLDatum, mattr: Array[String], index: Index[String]) {
+    for (chain <- 0 until mattr.size) {
+      for (slice <- 1 until datum.slen) {
+        for (head <- slice+1 to datum.slen) {
+          if (datum.head(slice) == head || datum.head(head) == slice) {
+            addBigramPotentials(slice, head, chain, ex, datum, mattr, index)
+          }
+        }
+      }
+    }
+  }
+
+//  def addLabelPotentials(ex: PotentialExample, datum: CoNLLDatum, mattr: Array[String], index: Index[String]) {
+//    for (chain <- 0 until mattr.size) {
+//      for (slice <- 1 until datum.slen) {
+//
+//      }
+//    }
+//  }
+
+  def addBigramPotentials(i: Int, j: Int, chain: Int, ex: PotentialExample, datum: CoNLLDatum, mattr: Array[String], index: Index[String]) {
+    val feats = groupedBigramLexicalFeatures(datum.words.toArray, i, j, params)
+    val attr = mattr(chain)
+    val itags = if (params.SPARSE) dict.tagsOfAttributeOrAll(datum.word(i), attr) else dict.tagsOfAttribute(attr)
+    val jtags = if (params.SPARSE) dict.tagsOfAttributeOrAll(datum.word(j), attr) else dict.tagsOfAttribute(attr)
+    for (ti <- 0 until itags.size; tj <- 0 until jtags.size) {
+      val potname = "chain(%d,%d,%d,%d,%d,%d)".format(chain, chain, i, j, ti, tj)
+      ex.potentials += new Potential(1.0, potname, itags(ti) == correct(i, datum, attr) && jtags(tj) == correct(j, datum, attr))
+      ex.features(potname) = feats.map { f =>
+        val fname = "%s_%s_%s_%s".format(attr, itags(ti), jtags(tj), f)
+        if (params.INTEGERIZE) {
+          new Feature(index.index(fname))
+        }
+        else {
+          new StringFeature(fname, index.index(fname))
+        }
+      }
+    }
+  }
+
+
   def addSlicePotentials(potentials: ArrayBuffer[Potential], datum: CoNLLDatum, mattr: Array[String],
-                         sliceDeps: Array[(Int, Int)], index: Index[String], fmap: HashMap[String, Array[Feature]]) {
+                         sliceDeps: Array[(Int, Int)], index: Index[String]) {
     for (slice <- 1 until datum.slen) {
       val feats = Array(new StringFeature("[bias]-%s", 1, 0),
                         new StringFeature("[form]-%s".format(datum.word(slice).toLowerCase), 1, 0)) //unigramLexicalFeatures(datum.words.toArray, slice, params)
@@ -162,19 +174,91 @@ class MorphTaggerModel(params: MorphTaggerParams, dict: MultiTagDictionary) exte
           val potname = "slice(%d,%d,%d,%d,%d,%d)".format(chain1, chain2, slice, slice, tag1, tag2)
           potentials += new Potential(1.0, potname, tags1(tag1) == correct(slice, datum, attr1)
                                                  && tags2(tag2) == correct(slice, datum, attr2))
+//          if (params.INTEGERIZE) {
+//            fmap(potname) = feats.map{ f =>
+//              new Feature(index.index("%s_%s_%s_%s_%s".format(attr1, attr2, tags1(tag1), tags2(tag2), f.name)), f.value, f.group)
+//            }
+//          }
+//          else {
+//            fmap(potname) = feats.map{ f =>
+//              new StringFeature("%s_%s_%s_%s_%s".format(attr1, attr2, tags1(tag1), tags2(tag2), f.name), f.value, f.group)
+//            }
+//          }
+        }
+      }
+    }
+  }
+
+
+  def addSplitPotentials(ex: PotentialExample, datum: CoNLLDatum, mattr: Array[String], index: Index[String]) {
+    val slen = datum.slen
+    for (i <- 1 until slen; j <- 1 to slen if i != j) {
+      val feats = groupedBigramLexicalFeatures(datum.words.toArray, i, j, params)
+      val attr = mattr(0)
+      val chain = 0
+      val itags = if (params.SPARSE) dict.tagsOfAttributeOrAll(datum.word(i), attr) else dict.tagsOfAttribute(attr)
+      val jtags = if (params.SPARSE) dict.tagsOfAttributeOrAll(datum.word(j), attr) else dict.tagsOfAttribute(attr)
+      for (ti <- 0 until itags.size; tj <- 0 until jtags.size) {
+        val potname = "chain(%d,%d,%d,%d,%d,%d)".format(chain, chain, i, j, ti, tj)
+        ex.potentials += new Potential(1.0, potname, itags(ti) == correct(i, datum, attr) && jtags(tj) == correct(j, datum, attr))
+        ex.features(potname) = feats.map { f =>
+          val fname = "%s_%s_%s_%s".format(attr, itags(ti), jtags(tj), f)
           if (params.INTEGERIZE) {
-            fmap(potname) = feats.map{ f =>
-              new Feature(index.index("%s_%s_%s_%s_%s".format(attr1, attr2, tags1(tag1), tags2(tag2), f.name)), f.value, f.group)
-            }
+            new Feature(index.index(fname))
           }
           else {
-            fmap(potname) = feats.map{ f =>
-              new StringFeature("%s_%s_%s_%s_%s".format(attr1, attr2, tags1(tag1), tags2(tag2), f.name), f.value, f.group)
-            }
+            new StringFeature(fname, index.index(fname))
           }
         }
       }
     }
+    for (i <- 1 until slen; j <- 1 to slen if i != j) {
+      val feats = wordLevelDependencyFeatures(datum.words.toArray, i, j)
+      val potname = "link(%d,%d)".format(i,j)
+      ex.potentials += new Potential(1.0, potname, datum.head(j) == i)
+      ex.features(potname) = feats.map { f =>
+        if (params.INTEGERIZE) {
+          new Feature(index.index(f))
+        }
+        else {
+          new StringFeature(f, index.index(f))
+        }
+      }
+    }
+    for (i <- 1 until slen; j <- 1 to slen if i != j) {
+      val feats = connectFeats(datum.words.toArray, i, j)
+      val attr = mattr(0)
+      val chain = 0
+      val itags = if (params.SPARSE) dict.tagsOfAttributeOrAll(datum.word(i), attr) else dict.tagsOfAttribute(attr)
+      val jtags = if (params.SPARSE) dict.tagsOfAttributeOrAll(datum.word(j), attr) else dict.tagsOfAttribute(attr)
+      for (ti <- 0 until itags.size; tj <- 0 until jtags.size) {
+        val potname = "connect(%d,%d,%d,%d)".format(i,j, ti, tj)
+        ex.potentials += new Potential(1.0, potname, datum.head(j) == i && itags(ti) == correct(i, datum, attr) && jtags(tj) == correct(j, datum, attr))
+        ex.features(potname) = feats.map { fstr =>
+          val f = "%s-%s-%s".format(fstr, itags(ti), jtags(tj))
+          if (params.INTEGERIZE) {
+            new Feature(index.index(f))
+          }
+          else {
+            new StringFeature(f, index.index(f))
+          }
+        }
+      }
+    }
+  }
+
+  def connectFeats(words: Array[String], head: Int, dep: Int): Array[String] = {
+    val dir  = if (dep > head) "R" else "L"
+    val dist = scala.math.abs(head - dep)
+    Array[String](
+      "[connect-bias]",
+      "[connect-dist]-%d".format(dist),
+      "[connect-dir]-%s".format(dir),
+      "[connect-dist-dir]-%d-%s".format(dist, dir),
+      "[connect-word-word]-%s-%s".format(words(head-1), words(dep-1)),
+      "[connect-word-word-dist]-%s-%s-%d".format(words(head-1), words(dep-1), dist),
+      "[connect-word-word-dir]-%s-%s-%s".format(words(head-1), words(dep-1), dir)
+    )
   }
 
   override def decode(instance: ModelInstance): MultiTaggedSentence = {
@@ -184,24 +268,29 @@ class MorphTaggerModel(params: MorphTaggerParams, dict: MultiTagDictionary) exte
     val attrs   = instance.ex.attributes.getOrElse("attrs", "").split(" ")
     val len = instance.ex.attributes.getOrElse("len", "-1").toInt
 
-    //   println("BELIEFS: " + beliefs.mkString("\n"))
     val groups = beliefs.filter(_.name.startsWith(params.LABEL_NAME)).groupBy{pot =>
       val LABEL_FAC_PATTERN(chain, slice, value) = pot.name
       (chain.toInt, slice.toInt)
     }
-    //   println("GROUPS: " + groups.keys.mkString("\n"))
+
     val mts = new MultiTaggedSentence
     for (chain <- 0 until attrs.size) {
       val tags = new ArrayBuffer[String]()
       for (slice <- 1 to len) {
         val pots = groups((chain, slice))
+        println("POTS:")
+        println(pots.mkString("\n"))
         assert(!pots.isEmpty, "Pots for group %d are empty in decoding?".format(slice))
         val maxpot = narad.util.Functions.argmax[Potential](_.value, pots)
+        println("max pot = " + maxpot)
         val LABEL_FAC_PATTERN(mchain, mslice, mvalue) = maxpot.name
         if (sparse) {
           tags += dict.tagsOfAttributeOrAll(words(slice.toInt-1), attrs(mchain.toInt))(mvalue.toInt)
         }
         else {
+          println("mchain: " + mchain)
+          println("mvalue: " + mvalue)
+          println("attr: " + attrs(mchain.toInt))
           tags += dict.tagsOfAttribute(attrs(mchain.toInt))(mvalue.toInt)
         }
       }
@@ -215,6 +304,11 @@ class MorphTaggerModel(params: MorphTaggerParams, dict: MultiTagDictionary) exte
   }
 
   def correct(i: Int, datum: CoNLLDatum, attribute: String): String = {
+    datum.attribute(i, attribute)
+  }
+}
+
+  /*
     attribute match {
       case "FINE" => datum.postag(i)
       case "COARSE" => datum.cpostag(i)
@@ -225,6 +319,7 @@ class MorphTaggerModel(params: MorphTaggerParams, dict: MultiTagDictionary) exte
     }
   }
 }
+                                                  */
 
 
 
@@ -243,6 +338,53 @@ class MorphTaggerModel(params: MorphTaggerParams, dict: MultiTagDictionary) exte
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//  override val BIGRAM_PATTERN   = """bigram\(([0-9]+),([0-9]+),([0-9]+),([0-9]+),([0-9]+)\)""".r
+//  override val TRIGRAM_PATTERN  = """trigram\(([0-9]+),([0-9]+),([0-9]+),([0-9]+)\)""".r
+
+/*
+//    val attributes  = Map[String, String]()
+//    val potentials = new ArrayBuffer[Potential]
+//    val featureMap = new HashMap[String, Array[Feature]]
+
+val chains = params.ATTRIBUTES
+val SLICE_DEP_PATTERN = """\(([0-9]+),([0-9]+)\)""".r
+val sliceDeps = new ArrayBuffer[(Int, Int)]()
+if (params.SLICE_DEPENDENCIES == "ALL") {
+for (i <- 0 until chains.size; j <- i+1 until chains.size) {
+sliceDeps += ((i, j))
+}
+}
+else if (!params.SLICE_DEPENDENCIES.isEmpty) {
+SLICE_DEP_PATTERN.findAllIn(params.SLICE_DEPENDENCIES).matchData.foreach { m =>
+sliceDeps += ((m.group(1).toInt, m.group(2).toInt))
+}
+}
+
+addAttributes(ex, datum, chains)
+addLabelPotentials(potentials, datum, chains, index, featureMap)
+if (params.CHAIN_ORDER == 2) {
+addChainPotentials(potentials, datum, chains, index, featureMap)
+}
+if (sliceDeps.size > 0) {
+addSlicePotentials(potentials, datum, chains, sliceDeps.toArray, index, featureMap)
+}
+*/
+//    ex //new PotentialExample(attributes, potentials, featureMap)
+//  }
 
 /*
 

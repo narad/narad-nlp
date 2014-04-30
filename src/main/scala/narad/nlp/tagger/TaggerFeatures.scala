@@ -10,18 +10,23 @@ import narad.bp.util.StringFeature
 
 trait TaggerFeatures extends StringPatterns {
 
-  def extractFeatures(trainFile: String, trainFeatureFile: String, dict: TagDictionary, index: Index[String], params: TaggerParams) {}
+//  def extractFeatures(trainFile: String, trainFeatureFile: String, dict: TagDictionary, index: Index[String], params: TaggerParams) {}
 
   def unigramFeatures(datum: CoNLLDatum, i: Int, params: TaggerParams): Array[String] = {
     unigramLexicalFeatures(datum.words.toArray, i, params).map(_.toString())
   }
 
-  def unigramLexicalFeatures(words: Array[String], i: Int, params: TaggerParams): Array[StringFeature] = {
-    val feats = new ArrayBuffer[StringFeature]
+  def unigramLexicalFeatures(words: Array[String], i: Int, params: TaggerParams): Array[String] = {
+    val feats = new ArrayBuffer[String]
     val slen = words.size
     val word = words(i-1)
-    feats += new StringFeature("[bias]", 1, 0)
-    feats += new StringFeature("[form]-%s".format(word.toLowerCase), 1, 0)
+    feats += "[bias]" //new StringFeature("[bias]", 1, 0)
+    feats += "[form]-%s".format(word.toLowerCase) // new StringFeature("[form]-%s".format(word.toLowerCase), 1, 0)
+/*
+    for (ss <- 1 to 3 if ss < word.size) {
+      feats += new StringFeature("[suffix]-%s".format(word.substring(word.size-ss)), 1, 0)
+    }
+
     if (params.FEATURE_MODE > 1) {
       feats += new StringFeature("[isCap]-%s".format(isCapitalized(word).toString), 1, 0)
      // feats += "[form-isCap]-%s-%s".format(word.toLowerCase(), isCapitalized(word).toString)
@@ -34,6 +39,7 @@ trait TaggerFeatures extends StringPatterns {
         feats += new StringFeature("[suffix]-%s".format(word.substring(word.size-ss)), 1, 0)
       }
     }
+    */
     return feats.toArray
   }
 
@@ -65,30 +71,58 @@ trait TaggerFeatures extends StringPatterns {
     return feats.toArray
   }
 
-  def groupedBigramLexicalFeatures(words: Array[String], fidx: Int, tidx: Int, params: TaggerParams): Array[StringFeature] = {
-    val feats = new ArrayBuffer[StringFeature]
+  def groupedBigramLexicalFeatures(words: Array[String], fidx: Int, tidx: Int, params: TaggerParams): Array[String] = {
+    val feats = new ArrayBuffer[String]
     val w1 = words(fidx-1)
     val w2 = words(tidx-1)
-    val dist = abs(tidx - fidx)
-    val dir = if (tidx > fidx) "RIGHT" else "LEFT"
-    feats += new StringFeature("[bias]", 1.0, 0)
-    feats += new StringFeature("[form]-%s-%s".format(w1.toLowerCase, w2.toLowerCase), 1.0, 0)
-    feats += new StringFeature("[dist]-%d".format(dist), 1.0, 0)
-    feats += new StringFeature("[dir]-%s".format(dir), 1.0, 0)
-    feats += new StringFeature("[dir-dis]-%s-%d".format(dir, dist), 1.0, 0)
-
-    if (params.FEATURE_MODE > 1) {
-      feats += new StringFeature("[isCap]-%s-%s".format(isCapitalized(w1).toString, isCapitalized(w2).toString), 1.0, 0)
-    }
-
-    if (params.FEATURE_MODE > 2) {
-      for (ss <- 1 to 3 if ss < w1.size && ss < w2.size) {
-        feats += new StringFeature("[suffix]-%s-%s".format(w1.substring(w1.size-ss), w2.substring(w2.size-ss)), 1.0, 0)
-      }
-    }
+    feats += "[bigram-bias]"
+    feats += "[bigram-form]-%s-%s".format(w1.toLowerCase, w2.toLowerCase)
+//    val w1 = words(fidx-1)
+//    val w2 = words(tidx-1)
+//    val dist = abs(tidx - fidx)
+//    val dir = if (tidx > fidx) "RIGHT" else "LEFT"
+//    feats += new StringFeature("[bias]", 1.0, 0)
+//    feats += new StringFeature("[form]-%s-%s".format(w1.toLowerCase, w2.toLowerCase), 1.0, 0)
+//    feats += new StringFeature("[dist]-%d".format(dist), 1.0, 0)
+//    feats += new StringFeature("[dir]-%s".format(dir), 1.0, 0)
+//    feats += new StringFeature("[dir-dis]-%s-%d".format(dir, dist), 1.0, 0)
+//
+//    if (params.FEATURE_MODE > 1) {
+//      feats += new StringFeature("[isCap]-%s-%s".format(isCapitalized(w1).toString, isCapitalized(w2).toString), 1.0, 0)
+//    }
+//
+//    if (params.FEATURE_MODE > 2) {
+//      for (ss <- 1 to 3 if ss < w1.size && ss < w2.size) {
+//        feats += new StringFeature("[suffix]-%s-%s".format(w1.substring(w1.size-ss), w2.substring(w2.size-ss)), 1.0, 0)
+//      }
+//    }
     return feats.toArray
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

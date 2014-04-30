@@ -26,48 +26,54 @@ object DependencyParser {
     val params = new DependencyParserParams(args)
     val parser = new ProjectiveDependencyParser(params)
     if (params.getBoolean("--extract.features")) {
-      parser.extractFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, params)
-      parser.extractFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, params)
+      System.err.println("Extracting Features...")
+      parser.extractParseFeatures(params.TRAIN_FILE, params.TRAIN_FEATURE_FILE, params)
+      parser.extractParseFeatures(params.TEST_FILE, params.TEST_FEATURE_FILE, params)
     }
     else if (params.getBoolean("--train")) {
- //     val optimizer = new Optimizer(parser, params) // with L2Regularizer
- //     val data = new PotentialReader(params.TRAIN_FIDX_FILE)
- //     optimizer.train(data)
+      val optimizer = new Optimizer(parser, params) // with L2Regularizer
+      val data = new PotentialReader(params.TRAIN_FIDX_FILE)
+      optimizer.train(data)
     }
     else if (params.getBoolean("--test")) {
-//      val optimizer = new Optimizer(parser, params)
-//      val data = new PotentialReader(params.TEST_FIDX_FILE)
-//      optimizer.test(data)
+      val optimizer = new Optimizer(parser, params)
+      val data = new PotentialReader(params.TEST_FIDX_FILE)
+      optimizer.test(data)
     }
   }
 }
 
-class ProjectiveDependencyParser(params: DependencyParserParams) extends FactorGraphModel[DependencyTree] with DependencyParseFeatures with BeliefPropagation {
-  val linkPattern  = """un\(([0-9]+),([0-9]+)\)""".r
+class ProjectiveDependencyParser(params: DependencyParserParams) extends FactorGraphModel[DependencyTree]
+          with DependencyParseFeatures with DependencyParserPrediction with BeliefPropagation {
+
+  private val DP_SYNTAX_PATTERN  = """un\(([0-9]+),([0-9]+)\)""".r
 
   def constructFromExample(ex: PotentialExample, pv: Array[Double]): ModelInstance = {
      val pots = ex.exponentiated(pv)
     System.err.println("%d pots found.".format(pots.size))
     val fg = new FactorGraphBuilder(pots)
     val slen = ex.attributes.getOrElse("slen", "-1").toInt
-    addDependencySyntax(fg, slen, pots)
+    addDependencySyntaxPrediction(fg, pots, slen)
     return new DependencyParserModelInstance(fg.toFactorGraph, ex)
   }
 
-  def addDependencySyntax(fg: FactorGraphBuilder, slen: Int, pots: Array[Potential]) = {
-    val pothash = pots.groupBy { p => val linkPattern(start, end) = p.name; (start.toInt, end.toInt) }
-    for (dep <- 1 to slen; head <- 0 to slen if dep != head) {
-      fg.addVariable("%s(%d,%d)".format("linkvar", head, dep), 2)
-      fg.addUnaryFactor("linkvar(%d,%d)".format(head, dep), "link\\(%d,%d\\)".format(head, dep), pothash((head, dep))(0))
-      // bpdp code kept a matrix for link vars, would have links[dep][head] = the variable
-    }
-    fg.addProjectiveTreeFactor(new Regex("linkvar\\("), "PTREE", slen)
-  }
-
   def decode(instance: ModelInstance): DependencyTree = {
+    val slen = instance.ex.attributes.getOrElse("slen", "-1").toInt
     val beliefs = instance.marginals
-    println()
-    null.asInstanceOf[DependencyTree]
+    val childs = beliefs.groupBy { p =>
+      p.name match {
+        case DP_SYNTAX_PATTERN(i, j) => {
+          j.toInt
+        }
+      }
+    }
+    val heads = new Array[Int](slen)
+    for (i <- 1 to slen) {
+      val maxname = narad.util.Functions.argmax[Potential](_.value, childs(i).toSeq).name
+      val DP_SYNTAX_PATTERN(si,sj) = maxname
+      heads(i-1) = si.toInt
+    }
+    new DependencyTree(heads)
   }
 
   def options = params

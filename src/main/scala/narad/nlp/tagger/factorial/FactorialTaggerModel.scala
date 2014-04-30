@@ -1,4 +1,4 @@
-package narad.nlp.tagger
+package narad.nlp.tagger.factorial
 
 import narad.bp.util.{Feature, PotentialExample}
 import narad.bp.structure._
@@ -10,6 +10,7 @@ import narad.io.conll.{CoNLLDatum, CoNLLReader}
 import narad.bp.inference.InferenceOrder
 import narad.bp.util.PotentialExample
 import util.matching.Regex
+import narad.nlp.tagger._
 
 /**
  * Created with IntelliJ IDEA.
@@ -60,16 +61,18 @@ class FactorialTaggerModel(params: FactorialTaggerParams) extends TaggerModel(pa
         arities(chain)(slice) = labelPots((chain, slice)).size
       }
     }
-    // Add chain dependencies
+    // Add chain dependencies (between time i and i+1, etc)
     if (pots.exists(_.name.startsWith(params.CHAIN_NAME))) {
-      for (chain <- 0 until chains; slice <- 1 until len) {
-        fg.addTable2FactorByIndex(idxs(chain)(slice), idxs(chain)(slice+1),
-          arities(chain)(slice), arities(chain)(slice+1),
-          "chainFac(%d,%d,%d,%d)".format(chain, chain, slice, slice+1),
-          chainPots((chain, chain, slice, slice+1)))
+      for (chain <- 0 until chains; slice1 <- 1 until len; slice2 <- slice1+1 to len) {
+        if (chainPots.contains((chain, chain, slice1, slice2))) {
+          fg.addTable2FactorByIndex(idxs(chain)(slice1), idxs(chain)(slice2),
+            arities(chain)(slice1), arities(chain)(slice2),
+            "chainFac(%d,%d,%d,%d)".format(chain, chain, slice1, slice2),
+            chainPots((chain, chain, slice1, slice2)))
+        }
       }
     }
-    // Add slice dependencies
+    // Add slice dependencies (between variables chain i and chain j and time t)
     if (pots.exists(_.name.startsWith(params.SLICE_NAME))) {
       for (slice <- 1 until len; chain1 <- 0 until chains; chain2 <- chain1 until chains if chain1 != chain2) {
         if (slicePots.contains((chain1, chain2, slice, slice))) {
@@ -86,18 +89,6 @@ class FactorialTaggerModel(params: FactorialTaggerParams) extends TaggerModel(pa
 
 class FactorialTaggerModelInstance(graph: FactorGraph, ex: PotentialExample)
   extends TaggerModelInstance(graph, ex) with FactorialTaggerChainInference
-
-class FactorialTaggerParams(args: Array[String]) extends TaggerParams(args) {
-  def NUM_CHAINS = getInt("--num.chains", 1)
-  def LABEL_NAME = getString("--label.name", "label")
-  def CHAIN_NAME = getString("--chain.name", "chain")
-  def CHAIN_ORDER = getInt("--chain.order", 1)
-  def SLICE_NAME = getString("--slice.name", "slice")
-  def SLICE_DEPENDENCIES = getString("--slice.dependencies", "")
-}
-
-
-
 
 
 

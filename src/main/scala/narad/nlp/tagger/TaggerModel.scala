@@ -32,11 +32,10 @@ class TaggerModel(params: TaggerParams) extends FactorGraphModel[MultiTaggedSent
     val useBigrams = bigram || oracle
     //    System.err.println("bigram = " + useBigrams)
     //    System.err.println("Constructing (%s) Tagger...".format(if (useBigrams) "bigram" else "unigram"))
-    val pots = ex.exponentiated(pv)
     //    System.err.println("%d pots found.".format(pots.size))
+    val pots = ex.exponentiated(pv)
     val fg = new FactorGraphBuilder(pots)
     val pidxs = new HashSet[Int]
-
 
     // Unigram Model
     val arities = new Array[Int](slen+1)
@@ -103,7 +102,6 @@ class TaggerModel(params: TaggerParams) extends FactorGraphModel[MultiTaggedSent
   }
 
   def decode(instance: ModelInstance): MultiTaggedSentence = {
-    System.err.println("IN T DECODING!")
     val beliefs = instance.marginals
     val labels   = instance.ex.attributes.getOrElse("tags", "").split(" ")
     val tags = new ArrayBuffer[String]
@@ -114,13 +112,10 @@ class TaggerModel(params: TaggerParams) extends FactorGraphModel[MultiTaggedSent
     for (group <- groups.toArray.sortBy(_._1.toInt)) {
       val idx = group._1.toInt
       val pots = group._2
-   		System.err.println(pots.mkString("\n"))
       assert(!pots.isEmpty, "Pots for group %d are empty in decoding?".format(idx))
       val maxpot = narad.util.Functions.argmax[Potential](_.value, pots)
-      //		System.err.println("max = " + maxpot)
       val labelPattern(i,j) = maxpot.name
       tags += labels(j.toInt)
-      //tags += j //labels(j.toInt)
     }
     val out = new FileWriter("test.itagged", true)
     out.write(tags.mkString("\n") + "\n")

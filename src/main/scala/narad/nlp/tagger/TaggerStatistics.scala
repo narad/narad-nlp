@@ -11,6 +11,7 @@ object TaggerStatistics {
 	def main(args: Array[String]) = {
 		val options = new ArgParser(args)
 		val conllFile = options.getString("--input.file")
+    assert(conllFile != null, "Invalid input file.")
 		val rFile = options.getString("--output.file")
     val attribute = options.getString("--attribute", "FINE")
     heatmaps(conllFile, attribute)
@@ -20,29 +21,24 @@ object TaggerStatistics {
     val multidict = MultiTagDictionary.construct(new CoNLLReader(filename), Array(attribute))
     val adjCPT = new ConditionalProbabilityTable[String]
     val syntaxCPT = new ConditionalProbabilityTable[String]
-    var dtcount = 0
-    var tocount = 0
-    var mdcount = 0
+
+    val p = "l"
+    var pcount = 0
 
     for (datum <- new CoNLLReader(filename)) {
-      datum.cpostags.foreach{t =>
-        if (t == "DT") dtcount += 1
-        if (t == "TO") tocount += 1
-        if (t == "MD") mdcount += 1
-      }
       for (i <- 2 to datum.slen) {
-        adjCPT.increment(tag(datum, i, attribute), tag(datum, i-1, attribute))
+        println(datum.attribute(i, attribute))
+        if (datum.attribute(i, attribute) == p) pcount += 1
+        adjCPT.increment(datum.attribute(i, attribute), datum.attribute(i-1, attribute))
       }
-      for (i <- 1 to datum.slen; j <- 1 to datum.slen if i != j) {
-        if (datum.head(j) == i) {
-          syntaxCPT.increment(tag(datum, j, attribute), tag(datum, i, attribute))
-        }
+      for (i <- 1 to datum.slen if datum.head(i) > 0) {
+          syntaxCPT.increment(datum.attribute(i, attribute), datum.attribute(datum.head(i), attribute))
       }
     }
-    println("DT = " + dtcount)
-    println("TO = " + tocount)
-    println("MD = " + mdcount)
-
+    println(pcount)
+    for (t <- adjCPT.contexts) {
+      println(t + " | " + p + " = " + adjCPT.count(p, t))
+    }
     printCPT(adjCPT, multidict, attribute, "BIGRAM")
     printCPT(syntaxCPT, multidict, attribute, "SYNTAX")
   }
@@ -58,22 +54,32 @@ object TaggerStatistics {
     println
   //  val hm1 = HeatMap.constructFromCPT(cpt, tags.map(_._1).toArray, tags.map(_._1).toArray)
 
-    val etags = Array("NN", "VB", "IN", "DT", "JJ", "CC", "TO", "MD") //cpt.contexts
+    val etags = Array("_", "a", "n", "b", "g", "d", "v", "l")
+//    val etags = Array("NN", "VB", "IN", "DT", "JJ", "CC", "TO", "MD")
     val hm1 = HeatMap.constructFromCPT(cpt, etags, etags)
     hm1.writeToFile(new File("%s.%s.R".format(label, attribute)), "%s.%s.heatmap".format(label, attribute))
   }
-
-  def tag(datum: CoNLLDatum, i: Int, attribute: String): String = {
-    attribute match {
-      case "COARSE" => datum.cpostag(i)
-      case "FINE"   => datum.postag(i)
-      case "CASE"   => datum.mcase(i)
-      case "PERSON" => datum.mperson(i)
-      case "GENDER" => datum.mgender(i)
-      case "NUMBER" => datum.mnumber(i)
-    }
-  }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -94,20 +100,6 @@ object TaggerStatistics {
     hm2.writeToFile(new File("syntaxCPT.R"), "syntax.heatmap")
   }
  */
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 /*

@@ -2,7 +2,9 @@ package narad.nlp.srl
 import narad.io.srl.SRLReader
 import collection.mutable.{HashMap, HashSet}
 import java.io.{File, FileWriter, PrintWriter}
+import narad.util.HashCounter
 import math._
+import collection.mutable
 
 /**
  * Created with IntelliJ IDEA.
@@ -11,15 +13,81 @@ import math._
  * Time: 7:36 PM
  * To change this template use File | Settings | File Templates.
  */
-class SRLDictionary(argDict: HashMap[String, Int], suffixes: HashMap[String, Int],
-                    senseDict: HashMap[String, HashSet[String]], dists: Array[Int]) {
-/*
-  private val preds  = new HashSet[String]
-  private val args   = new HashMap[String, Int]
-  private val suffixes = new HashMap[String, Int]
-  private val senses = new HashMap[String, HashSet[String]]
-*/
+class SRLDictionary() {
+  private val argDict = new HashMap[String, Int]
+  private val senseDict = new HashMap[String, HashSet[String]]
+  private val roleDict = new HashMap[String, HashCounter[String]]
+  private val posDict = new HashCounter[String]()
+  private val dists = new Array[Int](1000)
 
+  /*
+    private val senseDict = new HashMap[String, HashSet[String]]
+
+    lazy val allRoles = roleDict.toArray.map(_._2).flatten.distinct.sortBy(_.toString)
+  */
+
+  lazy val maxSenseSuffix = senseDict.toArray.map(_._2).flatten.map { sense =>
+    if (sense.contains(".")) {
+      sense.substring(sense.indexOf(".")+1)
+    }
+    else {
+      sense
+    }
+  }.groupBy(_.toString).toArray.sortBy(_._2.size * -1).map(p => (p._1, p._2.size)).head
+
+  def getDefaultSense(lemma: String, threshold: Int=100): String = {
+    if (maxSenseSuffix._2 > threshold) {
+      lemma + "." + maxSenseSuffix._1
+    }
+    else {
+      lemma
+    }
+  }
+
+  def getRoles(lemma: String): Array[String] = {
+    if (roleDict.contains(lemma)) {
+      roleDict(lemma).toArray.sortBy(_._2).map(_._1)
+    }
+    else {
+      roles
+    }
+  }
+
+  def addPos(pos: String) {
+    posDict.increment(pos)
+  }
+
+  def countPos(pos: String): Double = {
+    posDict.count(pos)
+  }
+
+  def getRoles(threshold: Int = 0): Array[String] = {
+      argDict.toArray.filter(_._2 >= threshold).sortBy(_._2 * -1).map(_._1)
+  }
+
+  def addArg(role: String) = {
+    if (argDict.contains(role)) {
+      argDict(role) += 1
+    }
+    else {
+      argDict(role) = 1
+    }
+  }
+
+  def addRole(pred: String, role: String) {
+    if (!roleDict.contains(pred)) roleDict(pred) = new HashCounter[String]()
+    roleDict(pred).increment(role)
+  }
+
+  def addSense(pred: String, sense: String) {
+    if (senseDict.contains(pred)) {
+      senseDict(pred) += sense
+    }
+    else {
+      senseDict(pred) = new HashSet[String]()
+      senseDict(pred) += sense
+    }
+  }
   def containsSense(lemma: String) = senseDict.contains(lemma)
 
   def senses(lemma: String) = {
@@ -39,38 +107,29 @@ object SRLDictionary {
 
   def construct(filename: String): SRLDictionary = {
     val reader = new SRLReader(filename)
-    val args   = new HashMap[String, Int]
-    val suffixes = new HashMap[String, Int]
-    val senses = new HashMap[String, HashSet[String]]
-    val dists  = new Array[Int](1000)
+//    val args   = new HashMap[String, Int]
+//    val suffixes = new HashMap[String, Int]
+//    val senses = new HashMap[String, HashSet[String]]
+//    val dists  = new Array[Int](1000)
+    val dict = new SRLDictionary()
     for (datum <- reader) {
-      for (label <- datum.labels) {
-        if (args.contains(label)) args(label) += 1 else args(label) = 1
-      }
+      datum.labels.foreach(dict.addArg(_))
       for (i <- 1 to datum.slen if datum.hasPred(i)) {
         val pred = datum.lemma(i)
         val sense = datum.sense(i)
-        val suffix = sense.substring(sense.lastIndexOf(".")+1)
-        if (suffixes.contains(suffix)) {
-          suffixes(suffix) += 1
-        }
-        else {
-          suffixes(suffix) = 1
+        dict.addSense(pred, sense)
+        for (j <- 1 to datum.slen if datum.hasArg(i, j)) {
+          dict.addPos(datum.postag(j))
+          dict.addRole(pred, datum.getLabel(i, j))
         }
 
-        if (senses.contains(pred)) {
-          senses(pred) += sense
-        }
-        else {
-          senses(pred) = new HashSet[String]
-          senses(pred) += sense
-        }
-        for (j <- 1 to datum.slen if datum.hasArg(i,j)) {
-          dists(abs(i-j)) += 1
-        }
+//        for (j <- 1 to datum.slen if datum.hasArg(i,j)) {
+//          dists(abs(i-j)) += 1
+//        }
       }
     }
-    new SRLDictionary(args, suffixes, senses, dists)
+    dict
+    // args, suffixes, senses, dists
   }
 }
 

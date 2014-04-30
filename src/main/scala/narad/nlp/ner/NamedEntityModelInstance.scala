@@ -13,9 +13,30 @@ class NamedEntityModelInstance(graph: FactorGraph, ex: PotentialExample) extends
 
 class NamedEntityMargModelInstance(graph: FactorGraph, ex: PotentialExample) extends NamedEntityModelInstance(graph, ex) {
 
-  override def hiddenVariableFactors = {
+  override def clampedFactors = {
+    println("Latent Syntax Marginalization")
     graph.factors.filter{ f =>
-      !(f.name.startsWith("nerlabel")) // && f.isCorrect)
-    }
+      f.name.startsWith("nerlabel")
+    }.iterator
   }
 }
+
+class NamedEntityLatentBinarizationInstance(graph: FactorGraph, ex: PotentialExample) extends NamedEntityModelInstance(graph, ex) {
+
+  override def clampedFactors = {
+    println("Latent Binarization")
+    graph.factors.filter{ f =>
+      f.name.startsWith("nerlabel") || (f.name.startsWith("brack") && f.isCorrect)
+    }.iterator
+  }
+}
+
+
+
+
+
+
+
+
+
+// class NamedEntityJointModelInstance(graph: FactorGraph, ex: PotentialExample) extends NamedEntityModelInstance(graph, ex) {}

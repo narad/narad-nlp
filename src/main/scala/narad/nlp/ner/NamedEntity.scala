@@ -1,6 +1,6 @@
 package narad.nlp.ner
 
-case class NamedEntity(tokens: Array[String], label: String, sentID: Int, start: Int, end: Int) {
+case class NamedEntity(label: String, sentID: Int, start: Int, end: Int, tokens: Array[String] = Array()) {
 	
 	override def toString: String = "%s [%d, [%d,%d]]: %s".format(label, sentID, start, end, tokens.mkString(", "))
 	

@@ -18,6 +18,10 @@ class ConstituentTree(node: ConstituentNode, val children: List[ConstituentTree]
 
   def isNonterminal = node.isNonterminal
 
+  def labelsOfSpan(i: Int, j: Int): Iterator[String] = {
+    index(i)(j).map(_.label).iterator
+  }
+
   def extractRules: HashSet[String] = {
     val rules = new HashSet[String]
     if (!isLeaf && !node.isPreterminal) {
@@ -43,14 +47,7 @@ class ConstituentTree(node: ConstituentNode, val children: List[ConstituentTree]
       }
     }
   }
-  /*
-      this match {
-        case x  NonterminalNode => new ConstituentTree(new NonterminalNode(coarsed), children.map(_.coarsenLabels))
-        case x: PreterminalNode => new ConstituentTree(new PreterminalNode(coarsed, x.word), children.map(_.coarsenLabels))
-      }
-    }
-  }
-  */
+
 
   def coarsen(ll: String): String = {
     if (ll == "-DFL-") return ll
@@ -81,23 +78,13 @@ class ConstituentTree(node: ConstituentNode, val children: List[ConstituentTree]
       case _=> new EvalBContainer()
     }
   }
-  /*
-      leaves.collect { l =>
-        l match {
-          case x : PreterminalNode => new Token(x.word, x.label)
-          case _ => None
-          }
-        }
-      }
-  */
-  // pairs collect { case (x: Int, y: String) => (x, y) }
 
   def setYield(words: Array[String], tags: Array[String], offset: Int = 0): ConstituentTree = {
-    println("setting yield")
+//    println("setting yield")
     var tally = 0
     node match {
       case x: NonterminalNode => {
-        println(" set nonterm")
+  //      println(" set nonterm")
         new ConstituentTree(node, children.map{ c =>
           val child = c.setYield(words, tags, offset + tally)
           tally += c.width
@@ -105,7 +92,7 @@ class ConstituentTree(node: ConstituentNode, val children: List[ConstituentTree]
         })
       }
       case x: PreterminalNode => {
-        println("offset = " + offset)
+ //       println("offset = " + offset)
         new ConstituentTree(new PreterminalNode(tags(offset), words(offset)))
       }
     }
@@ -134,70 +121,50 @@ class ConstituentTree(node: ConstituentNode, val children: List[ConstituentTree]
       case x: PreterminalNode => return "(%s %s)".format(x.label, x.word)
     }
   }
-/*
-    if (isLeaf) {
-      return "(%s)".format(node.toString())
-    }
-    else {
-      return "(%s %s)".format(node.toString(), children.map(_.toString()).mkString(" "))
-    }
-  }
-*/
 
   def slice(i: Int, j: Int): ConstituentTree = {
-    //    println("SLICING THIS: " + this.toString())
-    //    println("Slicing %d -> %d".format(s, e))
     val ospans = toSpans.toArray
-    //    println("ORIGINAL SPANS\n")
-    //    ospans.foreach(sp => println("  -o- " + sp.toString()))
-
     val fspans = ospans.filter{ s => s.start >= i && s.end <= j && s.width > 1} // && (span.end-span.start > 1 || span.isUnary)}
-    //    println("FILTERED SPANS\n")
-    //    ospans.foreach("  -f- " + _.toString())
-
-    //    val ss = spans.toArray.filter{span => span.start >= s && span.end <= e && (span.end-span.start > 1 && !span.isUnary)}
     val ss2 = fspans.map{span => Span(span.start-i, span.end-i, span.label, span.height)}
-    //(for (t <- this) yield Span(t.start(), t.end(), t.label(), t.isUnary)).toArray //.filter{span => span.start >= s && span.end <= end}
-    //    println(ss2.mkString("\n"))
-    val t = TreeFactory.constructFromSpans(ss2, j-i, words.slice(i, j).toArray, tags.slice(i, j).toArray)
-  //  t.annotateWithIndices(0)
-//    t.setYield(words.slice(i, j).toArray, tags.slice(i, j).toArray)
+    val t = ConstituentTreeFactory.constructFromSpans(ss2, j-i, words.slice(i, j).toArray, tags.slice(i, j).toArray)
     t
   }
 
-
-  /*
-    def binarize(mode: String = "RIGHT_0MARKOV"): ConstituentTree = {
-    if (children.size > 2) {
-      val grandchildren = children.slice(1, children.size)
-      var binLabel = if (isBinarized) node.label else "@%s".format(node.label)
-
-      return new ConstituentTree(node, List[ConstituentTree](children(0).binarize(), new ConstituentTree(new NonterminalNode(binLabel), grandchildren).binarize()))
-    }
-    else{
-      return new ConstituentTree(node, children.map(_.binarize()))
-    }
-  }
-   */
-
   def binarize(mode: String = "RIGHT_0MARKOV"): ConstituentTree = {
+ //   println("-- " + children.map(_.label).mkString(", "))
     if (children.size > 2) {
-      val grandchildren = children.slice(1, children.size)
+      //val grandchildren = children.slice(1, children.size)
       mode match {
         case "RIGHT_0MARKOV" => {
-          return new ConstituentTree(node, List[ConstituentTree](children(0).binarize(),
-                                            new ConstituentTree(new NonterminalNode("@%s".format(node.label)),
-                                            grandchildren).binarize()))
+          println("right 0 markov")
+          val blabel = if (node.label.startsWith("@")) node.label else "@%s".format(node.label)
+          return new ConstituentTree(node, List[ConstituentTree](
+              children(0).binarize(mode),
+              new ConstituentTree(new NonterminalNode(blabel), children.slice(1, children.size)).binarize(mode)))
+        }
+        case "LEFT_0MARKOV" => {
+          println("left 0 markov")
+          val blabel = if (node.label.startsWith("@")) node.label else "@%s".format(node.label)
+          return new ConstituentTree(node, List[ConstituentTree](
+              new ConstituentTree(new NonterminalNode(blabel), children.slice(0, children.size-1)).binarize(mode),
+              children.last.binarize(mode)))
         }
         case "RIGHT_SINGLE" => {
-          return new ConstituentTree(node, List[ConstituentTree](children(0).binarize(),
-            new ConstituentTree(new NonterminalNode("@"),
-              grandchildren).binarize()))
+          println("right single")
+          return new ConstituentTree(node, List[ConstituentTree](
+            children(0).binarize(mode),
+            new ConstituentTree(new NonterminalNode("@"), children.slice(1, children.size)).binarize(mode)))
+        }
+        case "LEFT_SINGLE" => {
+          println("left single")
+          return new ConstituentTree(node, List[ConstituentTree](
+            new ConstituentTree(new NonterminalNode("@"), children.slice(0, children.size-1)).binarize(mode),
+            children.last.binarize(mode)))
         }
       }
     }
     else{
-      return new ConstituentTree(node, children.map(_.binarize()))
+      return new ConstituentTree(node, children.map(_.binarize(mode)))
     }
   }
 
@@ -234,6 +201,15 @@ class ConstituentTree(node: ConstituentNode, val children: List[ConstituentTree]
     else {
       return new ConstituentTree(node, nchildren)
     }
+  }
+
+  def removeTop: ConstituentTree = {
+    assert(children.size == 1, "Attempted to remove top node on a tree that would become multi-rooted.\n" + toString)
+    children(0)
+  }
+
+  def nodemap(f: (ConstituentNode) => ConstituentNode): ConstituentTree = {
+    return new ConstituentTree(f(node), children.map(_.nodemap(f)))
   }
 
   override def breadthFirstSearch = super.breadthFirstSearch.map(_.asInstanceOf[ConstituentTree])
@@ -274,83 +250,121 @@ object ConstituentTree {
 
 
 
-object TreeFactory {
 
-  def buildTree(label: String = "SPAN", word: String = "", children: List[ConstituentTree] = List()): ConstituentTree = {
-    if (word == "") {
-      new ConstituentTree(new NonterminalNode(label), children)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+    if (isLeaf) {
+      return "(%s)".format(node.toString())
     }
     else {
-      new ConstituentTree(new PreterminalNode(label, word), children)
+      return "(%s %s)".format(node.toString(), children.map(_.toString()).mkString(" "))
     }
   }
+*/
 
-  def constructFromSpans(spans: Array[Span], slen: Int, words: Array[String] = Array(), tags: Array[String] = Array()): ConstituentTree = {
-    return TreeFactory.buildTree(label="TOP", children=findChildren(spans.sortBy(sp => (sp.width * 1000) + sp.height).reverse, 0, slen, words, tags))
-  }
+//    println("SLICING THIS: " + this.toString())
+//    println("Slicing %d -> %d".format(s, e))
+//    println("ORIGINAL SPANS\n")
+//    ospans.foreach(sp => println("  -o- " + sp.toString()))
 
-  def findChildren(spans: Array[Span], start: Int, end: Int, words: Array[String] = Array(), tags: Array[String] = Array()): List[ConstituentTree] = {
-    val children = new ArrayBuffer[ConstituentTree]
-    val max = findMaxSpan(spans, start, end)
-    max match {
-      case None => {
-        if (words.isEmpty || tags.isEmpty) {
-          List.fill(end-start)(TreeFactory.buildTree(label="TAG", word="TMP", children=List()))
-        }
-        else {
-          (start until end).map { i => TreeFactory.buildTree(label=tags(i), word=words(i), children=List()) }.toList
-        }
-      }
-      case Some(maxspan) => {
-        if (maxspan.start > start) {
-          val leftChildren = findChildren(spans, start, maxspan.start, words, tags)
-          if (leftChildren.size > 0) children ++= leftChildren
-        }
-        val cchildren = findChildren(spans.filter(_ != maxspan), maxspan.start, maxspan.end, words, tags)
-        children += TreeFactory.buildTree(label=maxspan.label, children=cchildren)
-        if (maxspan.end < end) {
-          val rightChildren = findChildren(spans, maxspan.end, end, words, tags)
-          if (rightChildren.size > 0) children ++= rightChildren
-        }
-        children.toList
-      }
+//    println("FILTERED SPANS\n")
+//    ospans.foreach("  -f- " + _.toString())
+
+//    val ss = spans.toArray.filter{span => span.start >= s && span.end <= e && (span.end-span.start > 1 && !span.isUnary)}
+//(for (t <- this) yield Span(t.start(), t.end(), t.label(), t.isUnary)).toArray //.filter{span => span.start >= s && span.end <= end}
+//    println(ss2.mkString("\n"))
+//  t.annotateWithIndices(0)
+//    t.setYield(words.slice(i, j).toArray, tags.slice(i, j).toArray)
+
+
+/*
+ def binarize(mode: String = "RIGHT_0MARKOV"): ConstituentTree = {
+ if (children.size > 2) {
+   val grandchildren = children.slice(1, children.size)
+
+   return new ConstituentTree(node, List[ConstituentTree](children(0).binarize(), new ConstituentTree(new NonterminalNode(binLabel), grandchildren).binarize()))
+ }
+ else{
+   return new ConstituentTree(node, children.map(_.binarize()))
+ }
+}
+*/
+
+
+/*
+    this match {
+      case x  NonterminalNode => new ConstituentTree(new NonterminalNode(coarsed), children.map(_.coarsenLabels))
+      case x: PreterminalNode => new ConstituentTree(new PreterminalNode(coarsed, x.word), children.map(_.coarsenLabels))
     }
-  }
-
-  def findMaxSpan(spans: Array[Span], start: Int, end: Int): Option[Span] = {
-    for (span <- spans) {
-      if (span.start >= start && span.end <= end) return Some(span)
-    }
-    return None
   }
 }
+*/
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/*
+    leaves.collect { l =>
+      l match {
+        case x : PreterminalNode => new Token(x.word, x.label)
+        case _ => None
+        }
+      }
+    }
+*/
+// pairs collect { case (x: Int, y: String) => (x, y) }
 
 
 /*
@@ -486,7 +500,7 @@ case class ConstituentTree(annotation: Annotation, children: Array[ConstituentTr
     val ss2 = fspans.map{span => Span(span.start-s, span.end-s, span.label, span.height)}
      //(for (t <- this) yield Span(t.start(), t.end(), t.label(), t.isUnary)).toArray //.filter{span => span.start >= s && span.end <= end}
 //    println(ss2.mkString("\n"))
-    val t = TreeFactory.constructFromSpans(ss2, e-s)
+    val t = ConstituentTreeFactory.constructFromSpans(ss2, e-s)
     t.annotateWithIndices(0)
     t.setYield(words.slice(s,e), tags.slice(s,e))
     t
@@ -506,7 +520,7 @@ case class ConstituentTree(annotation: Annotation, children: Array[ConstituentTr
   override def slice(s: Int, e: Int): ConstituentTree = {
     val ss = (for (t <- this) yield Span(t.start(), t.end(), t.label(), t.isUnary)).toArray //.filter{span => span.start >= s && span.end <= end}
     println(ss.mkString("\n"))
-    TreeFactory.constructFromSpans(ss, slen)
+    ConstituentTreeFactory.constructFromSpans(ss, slen)
   }
   */
 

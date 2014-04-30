@@ -3,6 +3,8 @@ package narad.io.conll
 import narad.util.ArgParser
 import narad.bp.structure.Potential
 import scala.collection.mutable.{ArrayBuffer, HashSet}
+import narad.nlp.srl.SRLDatum
+import collection.mutable
 
 // ID
 // Form
@@ -15,7 +17,43 @@ import scala.collection.mutable.{ArrayBuffer, HashSet}
 // PHead
 // PDepRel
 
-class CoNLLDatum(grid: Array[Array[String]]) {
+abstract class CoNLLDatum() {
+
+  def slen: Int
+
+  def form(i: Int): String
+
+  def forms: Iterable[String]
+
+  def word(i: Int): String
+
+  def words: Iterable[String]
+
+  def head(i: Int): Int
+
+  def heads: Iterable[Int]
+
+  def postag(i: Int): String
+
+  def postags: Iterable[String]
+
+  def cpostag(i: Int): String
+
+  def cpostags: Iterable[String]
+
+  def lemma(i: Int): String
+
+  def lemmas: Iterable[String]
+
+
+
+  def attribute(i: Int, mode: String): String
+
+}
+
+// class CoNLL2009Datum() extends CoNLLDatum {}
+
+class CoNLL2003Datum(grid: Array[Array[String]]) extends CoNLLDatum {
 	
 	def form(i: Int) = grid(i-1)(1)
 	
@@ -61,7 +99,7 @@ class CoNLLDatum(grid: Array[Array[String]]) {
 	
 	def words = forms
 
-  def getAttribute(i: Int, mode: String): String = {
+  def attribute(i: Int, mode: String): String = {
     mode match {
       case "COARSE" => cpostag(i)
       case "FINE"   => postag(i)
@@ -116,7 +154,14 @@ object CoNLLDatum {
 	
 	// ID FORM LEMMA PLEMMA POS PPOS FEAT PFEAT HEAD PHEAD DEPREL PDEPREL FILLPRED PRED APREDs
 	def constructFromCoNLL(lines: Array[String]): CoNLLDatum = {
-		return new CoNLLDatum(lines.map(_.split("\t")))
+    val numFields = lines.head.split("\t").size
+//    println("Number of fields in CoNLL file: " + numFields)
+    if (numFields >= 12) {
+      SRLDatum.constructFromCoNLL(lines)
+    }
+    else {
+      return new CoNLL2003Datum(lines.map(_.split("\t")))
+    }
 	}
 }
 

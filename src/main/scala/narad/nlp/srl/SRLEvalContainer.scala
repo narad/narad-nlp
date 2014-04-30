@@ -39,7 +39,7 @@ class SRLEvalContainer extends HashCounter[String] with EvalContainer {
     val lr = count("correct role") / count("total arg")
     val lf1 = if ((lp + lr) == 0) 0 else 2 * ((lp * lr) / (lp + lr))
 
-    val sa = count("correct sense") / count("total preds")
+    val sa = count("correct sense") / count("total preds") * 100
 
     val sb = new StringBuilder
     //    sb.append("# predicted args = " + count() + " / " + count("total arg") + " gold args.\n")
@@ -49,7 +49,18 @@ class SRLEvalContainer extends HashCounter[String] with EvalContainer {
     sb.append("Labeled Precision: (%f/%f) = %f\n".format(count("correct role"), count("test arg"), lp))
     sb.append("Labeled Recall: (%f/%f) = %f\n".format(count("correct role"), count("total arg"), lr))
     sb.append("Labeled F1: " + lf1 + "\n")
-    sb.append("Sense Accuracy: " + sa + "\n")
+    sb.append("Sense Accuracy: (%.2f / %.2f) = %.2f\n".format(count("correct sense"), count("total preds"), sa))
+    for (i <- 0 to 5) {
+      sb.append("gold frames of size %d = %f\n".format(i, count("gold frame " + i)))
+    }
+    for (i <- 0 to 5) {
+      sb.append("test frames of size %d = %f\n".format(i, count("test frame " + i)))
+    }
+    for (i <- 1 to 5) {
+      for (k <- keys.filter(_.startsWith("frame %d ".format(i)))) {
+        sb.append(k + "\t" + this(k) + "\n")
+      }
+    }
     sb.toString()
   }
 }
@@ -59,6 +70,14 @@ object SRLEvalContainer {
   def construct(goldSRL: SRLDatum, testSRL: SRLDatum): SRLEvalContainer = {
     val ec = new SRLEvalContainer()
     for (pidx <- goldSRL.predicates) {
+      // Frame comps
+      val gframe = goldSRL.argumentsOf(pidx).size
+      val tframe = testSRL.argumentsOf(pidx).size
+//      println("PIDX %d has %d arguments".format(pidx, gframe))
+      ec.increment("frame %d %d".format(gframe, tframe))
+      ec.increment("gold frame %d".format(gframe))
+      ec.increment("test frame %d".format(tframe))
+      // Sense comps
       if (goldSRL.sense(pidx) == testSRL.sense(pidx)) {
         ec.increment("correct sense")
       }
@@ -69,7 +88,7 @@ object SRLEvalContainer {
           }
           ec.increment("total arg")
           val role = goldSRL.getLabel(pidx, aidx)
-          if (testSRL.hasArgLabel(pidx, aidx, role)) {
+          if (testSRL.hasRole(pidx, aidx, role)) {
             ec.increment("correct role")
           }
         }

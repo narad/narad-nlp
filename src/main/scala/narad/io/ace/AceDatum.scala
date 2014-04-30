@@ -1,6 +1,6 @@
 package narad.io.datum
 
-/*
+
 case class ACEArg(start: Int, end: Int, text: String) {
 	def overlaps(other: FullMention): Boolean = {
 		(start <= other.start && end >= other.start) || (start <= other.end && end >= other.end) || (start <= other.start && end >= other.end)
@@ -97,7 +97,7 @@ case class FullMention(label: String, elabel: String, esublabel: String, start: 
 	}
 	
 	override def equals(that: Any) = that match { 
-		case other: EntityMention => other.text == text 
+		case other: ACEEntityMention => other.text == text
 		case _ => false 
 	}
 	
@@ -106,4 +106,3 @@ case class FullMention(label: String, elabel: String, esublabel: String, start: 
 	def width = end - start
 }
 
-*/

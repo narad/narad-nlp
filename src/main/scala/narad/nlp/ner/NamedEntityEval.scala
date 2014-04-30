@@ -1,9 +1,11 @@
 package narad.nlp.ner
 
 import narad.io.ner.{F1Container, NamedEntityReader, NamedEntityDatum}
+import java.io.FileWriter
+
 //import narad.io.onto.{NamedEntityDatum, NamedEntityReader}
 import narad.util.ArgParser
-import scala.collection.mutable.ArrayBuffer
+import narad.io.onto.OntoReader
 
 object NamedEntityEval {
 
@@ -17,7 +19,46 @@ object NamedEntityEval {
     for (i <- 0 until gners.size) {
       ec = ec.combine(gners(i).score(tners(i)))
     }
-    println(ec)
+    System.err.println(ec.toVerboseString)
+
+    if (options.getString("--syntax.file") != null) {
+      findSyntacticMismatches(options.getString("--gold.file"),
+        options.getString("--test.file"),
+        options.getString("--syntax.file"))
+    }
+
+    val conllFile = options.getString("--conll.file")
+    if (conllFile != null) toConllEval(gners, tners, conllFile)
+  }
+
+  def toConllEval(gners: Array[NamedEntityDatum], tners: Array[NamedEntityDatum], conllFile: String) {
+    val cout = new FileWriter(conllFile)
+    gners.zip(tners).foreach { case(gner, tner) =>
+      for (i <- 0 until gner.size) {
+        cout.write(Array(gner.words(i), "TAG", gner.getLabel(i), tner.getLabel(i)).mkString(" ") + "\n")
+      }
+      cout.write("\n")
+    }
+    cout.close()
+  }
+
+  def findSyntacticMismatches(goldFile: String, testFile: String, syntaxFile: String) {
+    val gners = new OntoReader(goldFile, syntaxFile).iterator.toArray
+    val tners = new OntoReader(testFile, syntaxFile).iterator.toArray
+    gners.zip(tners).foreach { case(gonto, tonto) =>
+      val tner = tonto.ner
+      val gner = gonto.ner
+      val tree = tonto.tree
+      for (i <- 0 to tner.size; j <- 0 to tner.size) {
+        if (gner.containsSpan(i,j) && !tner.containsSpan(i,j) && tree.containsSpan(i,j)) {
+          println("i = %d, j = %d: %s".format(i, j, gner.words.slice(i,j).mkString(" ")))
+          println("GOLD:\n" + gner)
+          println("TEST:\n" + tner)
+          println(tree)
+          println
+        }
+      }
+    }
   }
 }
 

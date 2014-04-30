@@ -1,6 +1,6 @@
 package narad.io.util
 
-/*
+
 import edu.stanford.nlp.tagger.maxent.MaxentTagger
 import edu.stanford.nlp.tagger.maxent.TaggerConfig
 import edu.stanford.nlp.parser.lexparser.{ChineseTreebankParserParams, Options}
@@ -49,7 +49,7 @@ object AcePreprocessor {
 			for (file <- filenames(new File(input), _.endsWith(".sgm"))) {
 				val filename = file.toString
 				val basename = filename.substring(0, filename.size-4)
-				val sentences = SentenceReader.read(AceReader.readSGM(basename + ".sgm"))
+				val sentences = io.Source.fromFile(AceReader.readSGM(basename + ".sgm")).getLines.toArray
 				val relations = AceReader.readRelations(basename + ".apf.xml").filter(!_.overlaps)
 				val entities  = AceReader.readFullMentions(basename + ".apf.xml").filter{e => val s = e.text.split(" ").size; s >= minEntity && s <= maxEntity}
 				for (sentence <- sentences) {
@@ -335,8 +335,8 @@ object AcePreprocessor {
 					parser.parses(words.mkString(" ")) match {
 						case Some(parsepair) => {
 							tree = parsepair._1
-							tree.annotateWithIndices(0)
-							tree.setLabels("BRK")
+//							tree.annotateWithIndices(0)
+//							tree.setLabels("BRK")
 							tree.setYield(words ++ words, words ++ words)
 							heads = parsepair._2.map(_.toString)
 						}
@@ -377,7 +377,7 @@ object AcePreprocessor {
 		val oformat = "UTF-8"
 		val out = new PrintStream(System.out, true, oformat)
 		
-		for (chunk <- ChunkReader.read(input, "UTF-8") if chunk.split("\n").size > 1) {
+		for (chunk <- (new ChunkReader(input, "UTF-8")) if chunk.split("\n").size > 1) {
 			val lines = chunk.split("\n")
 //			println("!\n%s!".format(lines.mkString("\n")))
 			val numEnts = lines.map{ l =>
@@ -398,10 +398,10 @@ object AcePreprocessor {
 					parser.parses(sent, language="CHINESE") match {
 						case Some(parsepair) => {
 							tree = parsepair._1
-							tree.annotateWithIndices(0)
-							tree.setLabels("BRK")
+//							tree.annotateWithIndices(0)
+//							tree.setLabels("BRK")
 							tree.setYield(words ++ words, words ++ words)
-							tags = tree.tokens.map(_.pos)
+							tags = tree.tokens.toArray.map(_.pos)
 							heads = parsepair._2.map(_.toString)
 						}
 						case _=> {
@@ -573,6 +573,4 @@ object AcePreprocessor {
 }
 
 }
-*/
-
 */

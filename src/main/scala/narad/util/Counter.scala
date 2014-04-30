@@ -23,6 +23,10 @@ class HashCounter[T] extends HashMap[T, Double] {
 			this(t) = amount
 		}
 	}
+
+  def sum: Double = {
+    keys.foldLeft(0.0)(_+count(_))
+  }
 }
 
 class NestedHashCounter[T] extends HashMap[T, HashCounter[T]] {

@@ -11,7 +11,21 @@ class ChunkReader(filename: String, iencoding: String="UTF-8") extends Iterable[
 	* Can be used with most treebanks, CoNLL-formatted files to
 	* process each chunk in a memory-efficient manner.  Though 
 	* not totally efficient at the moment...*/
-	def iterator: Iterator[String] = {
+  def iterator: Iterator[String] = {
+    var lines = Array[String]()
+    try {
+      val src = scala.io.Source.fromFile(filename, iencoding)
+      lines = src.getLines().toArray
+      src.close()
+    }
+    catch {
+      case e: Exception => System.err.println("Error reading file <%s> in ChunkReader.read (encoding:%s)".format(filename, iencoding))
+    }
+    Iterator.continually(readNext(lines)).takeWhile(_ != null)
+  }
+
+  /*
+  def iterator: Iterator[String] = {
 		var lines = Array[String]()
 		try {
 			lines = scala.io.Source.fromFile(filename, iencoding).getLines().toArray
@@ -21,6 +35,7 @@ class ChunkReader(filename: String, iencoding: String="UTF-8") extends Iterable[
 		}
 		Iterator.continually(readNext(lines)).takeWhile(_ != null)
 	}
+	*/
 
   /*
 	def read[T](filename: String, parseString: String => T): Iterator[T] = {
